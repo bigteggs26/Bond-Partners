@@ -1,0 +1,6 @@
+{
+  "name": "Bond Partners — Case Manager",
+  "description": "Case management system for Bond Partners legal practitioners with real-time sync, role-based controls, and secure document storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
