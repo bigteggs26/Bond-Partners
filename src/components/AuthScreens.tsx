@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  UserCheck,
 } from 'lucide-react';
 import { saveLocalProfile, getLocalProfile } from '../lib/profileCache';
 
@@ -44,7 +45,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
   onRefreshBossCheck,
 }) => {
   // Default mode
-  const [mode, setMode] = useState<'setup' | 'login'>(hasBossAccount ? 'login' : 'setup');
+  const [mode, setMode] = useState<'setup' | 'login' | 'lawyer'>(hasBossAccount ? 'login' : 'setup');
 
   // Form states
   const [name, setName] = useState('');
@@ -55,6 +56,86 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [showForgotNotice, setShowForgotNotice] = useState(false);
+
+  const handleLawyerSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setInfoMsg(null);
+    setShowForgotNotice(false);
+
+    if (!name.trim()) {
+      setErrorMsg('Please enter your full attorney name.');
+      return;
+    }
+    if (!identifier.trim() || !password) {
+      setErrorMsg('Please enter a username or email, and a password.');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters long.');
+      return;
+    }
+
+    const cleanInput = identifier.trim().toLowerCase();
+    const emailToUse = cleanInput.includes('@')
+      ? cleanInput
+      : `${cleanInput.replace(/[^a-z0-9._-]/g, '') || 'lawyer'}@bondpartners.internal`;
+
+    setLoading(true);
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: emailToUse,
+        password: password,
+        options: {
+          data: {
+            name: name.trim(),
+            role: 'lawyer',
+          },
+        },
+      });
+
+      if (authError) {
+        if (authError.message?.toLowerCase().includes('already registered')) {
+          setShowForgotNotice(true);
+          throw new Error('This account already exists. Please switch to the Sign In tab to log in.');
+        }
+        throw authError;
+      }
+
+      const authUser = authData.user;
+      if (!authUser) {
+        throw new Error('Could not create lawyer account.');
+      }
+
+      const lawyerProfile: Profile = {
+        id: authUser.id,
+        name: name.trim(),
+        role: 'lawyer',
+        created_at: new Date().toISOString(),
+      };
+
+      // Ensure profile exists in database profiles table for FK constraints
+      try {
+        await supabase.from('profiles').upsert([
+          {
+            id: authUser.id,
+            name: lawyerProfile.name,
+            role: 'lawyer',
+          },
+        ]);
+      } catch (profErr) {
+        console.warn('Lawyer profile sync notice:', profErr);
+      }
+
+      saveLocalProfile(lawyerProfile);
+      onAuthSuccess(lawyerProfile);
+    } catch (err: any) {
+      console.error('Lawyer registration error:', err);
+      setErrorMsg(err.message || 'Lawyer account setup failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleBossSetup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -345,20 +426,19 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
           role: metaRole as 'boss' | 'lawyer',
           created_at: new Date().toISOString(),
         };
+      }
 
-        // Sync in background without blocking
-        supabase
-          .from('profiles')
-          .upsert([
-            {
-              id: authUser.id,
-              name: userProfile.name,
-              role: userProfile.role,
-            },
-          ])
-          .then(({ error }) => {
-            if (error) console.warn('Background profile sync notice:', error.message);
-          });
+      // CRITICAL: Ensure profile exists in database profiles table for FK constraints
+      try {
+        await supabase.from('profiles').upsert([
+          {
+            id: authUser.id,
+            name: userProfile.name,
+            role: userProfile.role,
+          },
+        ]);
+      } catch (syncErr: any) {
+        console.warn('Profile sync on login notice:', syncErr.message);
       }
 
       saveLocalProfile(userProfile);
@@ -410,8 +490,8 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
 
         {/* Card */}
         <div className="bg-[#141721]/90 backdrop-blur-md border border-[#2b3040] rounded-2xl shadow-2xl p-6 sm:p-8">
-          {/* Navigation Tabs (Always toggleable) */}
-          <div className="flex rounded-lg bg-[#0a0c12] p-1 mb-6 border border-[#262c3e]">
+          {/* Navigation Tabs */}
+          <div className="flex rounded-lg bg-[#0a0c12] p-1 mb-6 border border-[#262c3e] gap-1">
             <button
               type="button"
               onClick={() => {
@@ -428,6 +508,23 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
             >
               <LogIn className="w-3.5 h-3.5" />
               Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('lawyer');
+                setErrorMsg(null);
+                setInfoMsg(null);
+                setShowForgotNotice(false);
+              }}
+              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                mode === 'lawyer'
+                  ? 'bg-[#1e2436] text-[#e5c378] shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              Lawyer Sign Up
             </button>
             <button
               type="button"
@@ -574,7 +671,143 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                 </button>
               </form>
 
-              <div className="mt-5 pt-4 border-t border-[#252a38] text-center">
+              <div className="mt-6 pt-4 border-t border-[#252a38] text-center">
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className="text-xs text-slate-400 hover:text-[#e5c378] transition-colors cursor-pointer"
+                >
+                  Already have an account? <span className="underline">Sign In here</span>
+                </button>
+              </div>
+            </div>
+          ) : mode === 'lawyer' ? (
+            <div>
+              <div className="mb-6 pb-4 border-b border-[#252a38]">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#c5a059]/15 text-[#e5c378] border border-[#c5a059]/30 mb-2">
+                  <UserCheck className="w-3.5 h-3.5" />
+                  Associate & Partner Counsel Registration
+                </div>
+                <h2
+                  className="text-xl font-bold tracking-wide text-slate-100"
+                  style={{ fontFamily: "'Cinzel', Georgia, serif" }}
+                >
+                  Join Firm Roster
+                </h2>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Register your lawyer credentials. You will have full privileges to file cases, manage dockets, and upload evidentiary files.
+                </p>
+              </div>
+
+              {errorMsg && (
+                <div className="mb-5 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-200 text-xs flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                  <div className="leading-relaxed space-y-1">
+                    <p>{errorMsg}</p>
+                    {showForgotNotice && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode('login');
+                          setErrorMsg(null);
+                        }}
+                        className="text-[#e5c378] font-medium underline hover:text-[#f3d38c] text-xs inline-block mt-1 cursor-pointer"
+                      >
+                        Switch to Sign In tab →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {infoMsg && (
+                <div className="mb-5 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-200 text-xs flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                  <span>{infoMsg}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleLawyerSignup} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Attorney Full Name
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Sarah Jenkins, Esq."
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Username or Email
+                  </label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. sarah or sarah@bondpartners.com"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    You can use a firm username (e.g. <span className="text-slate-300 font-mono">sarah</span>) or your email address.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-10 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Minimum 6 characters</p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full mt-2 py-3 px-4 rounded-lg font-semibold text-sm tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Registering Lawyer Account...
+                    </>
+                  ) : (
+                    'Register as Lawyer & Enter Firm'
+                  )}
+                </button>
+              </form>
+
+              <div className="mt-6 pt-4 border-t border-[#252a38] text-center">
                 <button
                   type="button"
                   onClick={() => setMode('login')}

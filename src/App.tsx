@@ -150,6 +150,24 @@ export default function App() {
             saveLocalProfile(fallbackProf);
             setCurrentUser(fallbackProf);
           }
+
+          // Always ensure the profile row is present in the Postgres profiles table
+          const activeProf = matched || {
+            id: session.user.id,
+            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel',
+            role: session.user.user_metadata?.role || (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer'),
+          };
+          try {
+            await supabase.from('profiles').upsert([
+              {
+                id: activeProf.id,
+                name: activeProf.name,
+                role: activeProf.role,
+              },
+            ]);
+          } catch (syncErr) {
+            console.warn('Profile sync notice:', syncErr);
+          }
         }
       } catch (e) {
         console.error('Init error:', e);
@@ -202,6 +220,24 @@ export default function App() {
           };
           saveLocalProfile(prof);
           setCurrentUser(prof);
+        }
+
+        // Always sync profile row to Postgres profiles table
+        const activeProf = matched || {
+          id: session.user.id,
+          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel',
+          role: session.user.user_metadata?.role || (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer'),
+        };
+        try {
+          await supabase.from('profiles').upsert([
+            {
+              id: activeProf.id,
+              name: activeProf.name,
+              role: activeProf.role,
+            },
+          ]);
+        } catch (syncErr) {
+          console.warn('Auth change profile sync notice:', syncErr);
         }
       }
     });

@@ -158,24 +158,75 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
       }
 
       // Get the current logged-in user first
-      const { data: { user } } = await supabase.auth.getUser();
+      let authUser: any = null;
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        authUser = userData?.user || null;
+      } catch {
+        // fallback
+      }
+      if (!authUser) {
+        const { data: sessData } = await supabase.auth.getSession();
+        authUser = sessData?.session?.user || null;
+      }
+
+      const creatorId = authUser?.id || currentUser?.id;
+      if (!creatorId) {
+        throw new Error('Authentication required: please sign in before filing a case docket.');
+      }
+
+      // CRITICAL: Supabase foreign key constraint 'cases_created_by_fkey' requires that creatorId
+      // exists in the 'profiles' table. If the lawyer's profile row is missing, Postgres throws error 23503.
+      // We guarantee the profile is upserted into 'profiles' before inserting the case docket!
+      setUploadProgress('Verifying attorney profile in firm register...');
+      try {
+        const { error: profErr } = await supabase.from('profiles').upsert([
+          {
+            id: creatorId,
+            name: currentUser?.name || authUser?.user_metadata?.name || 'Counsel',
+            role: currentUser?.role || authUser?.user_metadata?.role || 'lawyer',
+          },
+        ]);
+        if (profErr) {
+          console.warn('Profile sync notice before case creation:', profErr.message);
+        }
+      } catch (pErr) {
+        console.warn('Profile sync exception:', pErr);
+      }
 
       // 2. Insert case record into `cases`
       setUploadProgress('Creating case docket entry in database...');
-      const { data: newCaseData, error: caseInsertErr } = await supabase
+      const insertPayload: any = {
+        case_name: caseName.trim(),
+        case_date: caseDate,
+        stage: stage,
+        assigned_lawyer_id: assignedLawyerId || null,
+        photo_url: uploadedPhotoUrl,
+        created_by: creatorId,
+      };
+
+      let { data: newCaseData, error: caseInsertErr } = await supabase
         .from('cases')
-        .insert([
-          {
-            case_name: caseName.trim(),
-            case_date: caseDate,
-            stage: stage,
-            assigned_lawyer_id: assignedLawyerId || null,
-            photo_url: uploadedPhotoUrl,
-            created_by: user?.id || currentUser?.id,
-          },
-        ])
+        .insert([insertPayload])
         .select()
         .single();
+
+      // If foreign key constraint failed on assigned_lawyer_id (e.g. unrecorded lawyer ID), retry with null
+      if (
+        caseInsertErr &&
+        caseInsertErr.code === '23503' &&
+        (caseInsertErr.message?.includes('assigned_lawyer') || caseInsertErr.details?.includes('assigned_lawyer'))
+      ) {
+        console.warn('Retrying case insert with unassigned lawyer due to FK constraint...');
+        insertPayload.assigned_lawyer_id = null;
+        const retryRes = await supabase
+          .from('cases')
+          .insert([insertPayload])
+          .select()
+          .single();
+        newCaseData = retryRes.data;
+        caseInsertErr = retryRes.error;
+      }
 
       if (caseInsertErr) {
         throw new Error(`Failed to create case: ${caseInsertErr.message}`);
