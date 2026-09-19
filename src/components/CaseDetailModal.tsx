@@ -29,6 +29,7 @@ interface CaseDetailModalProps {
   onClose: () => void;
   onCaseDeleted?: (deletedId: string) => void;
   onCaseUpdated?: (updatedCase: CaseItem) => void;
+  onOpenAddFile?: (caseId: string) => void;
 }
 
 export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
@@ -38,6 +39,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   onClose,
   onCaseDeleted,
   onCaseUpdated,
+  onOpenAddFile,
 }) => {
   const isBoss = currentUser.role === 'boss';
 
@@ -46,7 +48,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Boss Edit mode states
+  // Edit mode states (Available to both Boss & Lawyers)
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -172,9 +174,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
   if (!caseId) return null;
 
-  // Boss updates Stage
+  // Updates Stage (Available to all firm counsel)
   const handleStageChange = async (newStage: CaseStage) => {
-    if (!isBoss || !currentCase) return;
+    if (!currentCase) return;
     setErrorMsg(null);
 
     // Optimistic update
@@ -199,10 +201,10 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Boss saves edits (name, date, lawyer, photo)
+  // Saves edits (name, date, lawyer, photo)
   const handleSaveEdits = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isBoss || !currentCase) return;
+    if (!currentCase) return;
     setErrorMsg(null);
     setEditSaving(true);
 
@@ -456,12 +458,12 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {isBoss && !isEditing && (
+            {!isEditing && (
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-slate-200 border border-[#2e364a] transition-colors"
-                title="Edit case title, date, or counsel"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-slate-200 border border-[#2e364a] hover:border-[#c5a059]/60 transition-colors cursor-pointer"
+                title="Edit case title, date, photo, or counsel"
               >
                 <Edit2 className="w-3.5 h-3.5 text-[#c5a059]" />
                 <span className="hidden sm:inline">Edit Details</span>
@@ -728,35 +730,24 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                         Current Case Stage
                       </span>
                       <p className="text-[11px] text-slate-500">
-                        {isBoss
-                          ? 'As Managing Partner, you can advance or update this stage in real-time.'
-                          : 'Stage is managed exclusively by the Managing Partner (Boss).'}
+                        Update or advance this proceeding's stage across the firm in real-time.
                       </p>
                     </div>
 
                     <div>
-                      {isBoss ? (
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={currentCase.stage}
-                            onChange={(e) => handleStageChange(e.target.value as CaseStage)}
-                            className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
-                          >
-                            {CASE_STAGES.map((s) => (
-                              <option key={s} value={s} className="bg-[#12151e] text-slate-100">
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold ${stageCfg.bg} ${stageCfg.text} ${stageCfg.border}`}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={currentCase.stage}
+                          onChange={(e) => handleStageChange(e.target.value as CaseStage)}
+                          className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
                         >
-                          <span className={`w-2 h-2 rounded-full ${stageCfg.dot}`} />
-                          <span>{currentCase.stage}</span>
-                        </div>
-                      )}
+                          {CASE_STAGES.map((s) => (
+                            <option key={s} value={s} className="bg-[#12151e] text-slate-100">
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -782,8 +773,20 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                   </p>
                 </div>
 
-                {/* Upload Button: AVAILABLE TO BOTH BOSS AND LAWYERS */}
-                <div>
+                {/* Upload Buttons: AVAILABLE TO BOTH BOSS AND LAWYERS */}
+                <div className="flex items-center gap-2">
+                  {onOpenAddFile && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAddFile(currentCase.id)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-[#faebd0] border border-[#2e364a] hover:border-[#c5a059]/60 transition-all cursor-pointer"
+                      title="Open full upload dialog with multi-file manager"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5 text-[#c5a059]" />
+                      <span className="hidden sm:inline">Upload Dialog</span>
+                    </button>
+                  )}
+
                   <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold bg-[#1d2232] hover:bg-[#252b3f] text-[#faebd0] border border-[#c5a059]/40 hover:border-[#c5a059] cursor-pointer transition-all shadow-sm">
                     {isUploadingDoc ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin text-[#c5a059]" />

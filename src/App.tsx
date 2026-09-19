@@ -403,15 +403,14 @@ export default function App() {
         }}
       />
 
-      {/* New Case Modal (Boss only) */}
-      {currentUser.role === 'boss' && (
-        <NewCaseModal
-          isOpen={isNewCaseOpen}
-          onClose={() => setIsNewCaseOpen(false)}
-          onSuccess={handleCaseCreated}
-          lawyers={profiles}
-        />
-      )}
+      {/* New Case Modal (Available to both Boss & Lawyers) */}
+      <NewCaseModal
+        isOpen={isNewCaseOpen}
+        onClose={() => setIsNewCaseOpen(false)}
+        onSuccess={handleCaseCreated}
+        lawyers={profiles}
+        currentUser={currentUser}
+      />
 
       {/* Manage Team Modal (Boss only) */}
       {currentUser.role === 'boss' && (
@@ -426,7 +425,7 @@ export default function App() {
         />
       )}
 
-      {/* Case Detail Modal (Viewable by everyone; upload by everyone; edit/delete by Boss only) */}
+      {/* Case Detail Modal (Viewable, editable, and document upload by both Boss & Lawyers) */}
       {selectedCaseId && (
         <CaseDetailModal
           caseId={selectedCaseId}
@@ -435,6 +434,10 @@ export default function App() {
           onClose={() => setSelectedCaseId(null)}
           onCaseDeleted={handleCaseDeleted}
           onCaseUpdated={handleCaseUpdated}
+          onOpenAddFile={(targetCase) => {
+            setAddFileTargetCaseId(targetCase);
+            setIsAddFileOpen(true);
+          }}
         />
       )}
     </div>

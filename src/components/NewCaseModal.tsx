@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, STORAGE_BUCKET, MAX_FILE_SIZE_BYTES, formatBytes } from '../lib/supabase';
-import { Profile, CaseStage, CASE_STAGES } from '../types';
+import { Profile, CaseStage, CASE_STAGES, CaseFile } from '../types';
+import { saveLocalCaseFile } from '../lib/fileCache';
 import {
   X,
   Upload,
+  UploadCloud,
   Calendar,
   Briefcase,
   FileText,
@@ -19,6 +21,7 @@ interface NewCaseModalProps {
   onClose: () => void;
   onSuccess: (newCaseId: string) => void;
   lawyers: Profile[];
+  currentUser?: Profile;
 }
 
 export const NewCaseModal: React.FC<NewCaseModalProps> = ({
@@ -26,6 +29,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
   onClose,
   onSuccess,
   lawyers,
+  currentUser,
 }) => {
   const [caseName, setCaseName] = useState('');
   const [caseDate, setCaseDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -36,6 +40,8 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [isDraggingDocs, setIsDraggingDocs] = useState(false);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   // Status
   const [loading, setLoading] = useState(false);
@@ -47,14 +53,18 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
       setCaseName('');
       setCaseDate(new Date().toISOString().split('T')[0]);
       setStage('Active');
-      setAssignedLawyerId(lawyers.length > 0 ? lawyers[0].id : '');
+      // If current user is a lawyer or partner, default to them, or first in directory
+      const defaultCounselId =
+        currentUser?.id || (lawyers.length > 0 ? lawyers[0].id : '');
+      setAssignedLawyerId(defaultCounselId);
       setPhotoFile(null);
       setPhotoPreview(null);
       setAttachedFiles([]);
       setErrorMsg(null);
       setUploadProgress(null);
+      setIsDraggingDocs(false);
     }
-  }, [isOpen, lawyers]);
+  }, [isOpen, lawyers, currentUser]);
 
   if (!isOpen) return null;
 
@@ -195,18 +205,33 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
             .getPublicUrl(docPath);
 
           // Insert into `case_files`
-          const { error: fileRowErr } = await supabase.from('case_files').insert([
-            {
-              case_id: caseId,
-              file_name: doc.name,
-              file_url: docUrlData.publicUrl,
-              uploaded_at: new Date().toISOString(),
-            },
-          ]);
+          const newDocRecord: CaseFile = {
+            id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            case_id: caseId,
+            file_name: doc.name,
+            file_url: docUrlData.publicUrl,
+            uploaded_at: new Date().toISOString(),
+          };
+
+          const { data: insertedFileData, error: fileRowErr } = await supabase
+            .from('case_files')
+            .insert([
+              {
+                case_id: caseId,
+                file_name: doc.name,
+                file_url: docUrlData.publicUrl,
+                uploaded_at: newDocRecord.uploaded_at,
+              },
+            ])
+            .select()
+            .maybeSingle();
 
           if (fileRowErr) {
             console.warn('Could not insert case_file record:', fileRowErr);
           }
+
+          // Cache locally so it is immediately accessible
+          saveLocalCaseFile(insertedFileData ? (insertedFileData as CaseFile) : newDocRecord);
         }
       }
 
@@ -239,7 +264,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
                 + File New Case
               </h2>
               <p className="text-xs text-slate-400">
-                Authorized Managing Partner Docket Entry (Real-time live sync across firm)
+                {currentUser?.role === 'boss' ? 'Managing Partner' : 'Firm Counsel'} Docket Entry (Real-time live sync across firm)
               </p>
             </div>
           </div>
@@ -405,6 +430,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
                 <Upload className="w-3 h-3" />
                 <span>+ Add Files</span>
                 <input
+                  ref={docInputRef}
                   type="file"
                   multiple
                   onChange={handleDocumentsSelect}
@@ -413,9 +439,46 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
               </label>
             </div>
 
+            {/* Drag and Drop Zone */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingDocs(true);
+              }}
+              onDragLeave={() => setIsDraggingDocs(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingDocs(false);
+                const files = Array.from(e.dataTransfer.files);
+                const oversized = files.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+                if (oversized.length > 0) {
+                  setErrorMsg(
+                    `File "${oversized[0].name}" exceeds 50MB limit. Maximum allowed size is 50MB.`
+                  );
+                  return;
+                }
+                setAttachedFiles((prev) => [...prev, ...files]);
+              }}
+              onClick={() => docInputRef.current?.click()}
+              className={`p-3.5 mb-2 rounded-xl border-2 border-dashed transition-all text-center cursor-pointer flex items-center justify-center gap-3 ${
+                isDraggingDocs
+                  ? 'border-[#c5a059] bg-[#c5a059]/10'
+                  : 'border-[#292f40] hover:border-[#c5a059]/50 bg-[#0a0c12]/60'
+              }`}
+            >
+              <div className="w-8 h-8 rounded-full bg-[#181c2b] border border-[#2b334d] flex items-center justify-center text-[#c5a059] shrink-0">
+                <UploadCloud className="w-4 h-4" />
+              </div>
+              <div className="text-left text-xs">
+                <span className="text-[#e5c378] font-semibold underline">Click to add documents</span>{' '}
+                <span className="text-slate-300">or drag & drop files here</span>
+                <p className="text-[10px] text-slate-500">PDF, Word, Scans, Media (up to 50MB per file)</p>
+              </div>
+            </div>
+
             {attachedFiles.length === 0 ? (
-              <div className="p-4 rounded-lg border border-dashed border-[#292f40] bg-[#0b0d14] text-center text-xs text-slate-500">
-                No initial files attached yet. (Documents can also be added anytime after filing by either the Boss or Lawyers).
+              <div className="p-3 rounded-lg border border-[#232838] bg-[#0b0d14] text-center text-xs text-slate-500">
+                No initial files attached yet. (Documents can also be added anytime after filing).
               </div>
             ) : (
               <div className="space-y-2 max-h-40 overflow-y-auto pr-1">

@@ -189,19 +189,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             title="Upload and attach documents to cases"
           >
             <UploadCloud className="w-4 h-4 text-[#c5a059]" />
-            <span>+ Add Case File</span>
+            <span>+ Upload Doc</span>
           </button>
 
-          {isBoss && (
-            <button
-              type="button"
-              onClick={onOpenNewCase}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>+ File New Case</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onOpenNewCase}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all cursor-pointer"
+            title="File a new case docket with photos and evidentiary documents"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>+ File New Case</span>
+          </button>
         </div>
       </div>
 
