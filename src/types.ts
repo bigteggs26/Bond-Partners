@@ -37,6 +37,7 @@ export interface CaseItem {
   stage: CaseStage;
   assigned_lawyer_id: string | null;
   photo_url: string | null;
+  created_by?: string | null;
   created_at: string;
   updated_at?: string;
   assigned_lawyer?: Profile | null;

@@ -157,7 +157,10 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
         uploadedPhotoUrl = publicUrlData.publicUrl;
       }
 
-      // 2. Insert case row into `cases`
+      // Get the current logged-in user first
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // 2. Insert case record into `cases`
       setUploadProgress('Creating case docket entry in database...');
       const { data: newCaseData, error: caseInsertErr } = await supabase
         .from('cases')
@@ -168,6 +171,7 @@ export const NewCaseModal: React.FC<NewCaseModalProps> = ({
             stage: stage,
             assigned_lawyer_id: assignedLawyerId || null,
             photo_url: uploadedPhotoUrl,
+            created_by: user?.id || currentUser?.id,
           },
         ])
         .select()
