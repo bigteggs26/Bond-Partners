@@ -14,7 +14,59 @@ import {
   LayoutGrid,
   List,
   Sparkles,
+  X,
 } from 'lucide-react';
+
+// Helper to match dates in multiple formats (e.g., "2026-09-18", "Sep 18", "September", "2026")
+function matchesCaseDate(caseDate: string, query: string): boolean {
+  if (!caseDate || !query) return false;
+  const q = query.trim().toLowerCase();
+
+  // 1. Raw date substring match (e.g., "2026-09-18", "2026-09", "09-18", "2026")
+  if (caseDate.toLowerCase().includes(q)) return true;
+  const slashDate = caseDate.replace(/-/g, '/');
+  if (slashDate.includes(q)) return true;
+
+  try {
+    const d = new Date(caseDate + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      const fullDate = d.toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      }).toLowerCase(); // "september 18, 2026"
+
+      const shortDate = d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      }).toLowerCase(); // "sep 18, 2026"
+
+      const monthLong = d.toLocaleDateString('en-US', { month: 'long' }).toLowerCase(); // "september"
+      const monthShort = d.toLocaleDateString('en-US', { month: 'short' }).toLowerCase(); // "sep"
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase(); // "friday"
+      const dayNum = d.getDate().toString(); // "18"
+      const yearStr = d.getFullYear().toString(); // "2026"
+
+      if (
+        fullDate.includes(q) ||
+        shortDate.includes(q) ||
+        monthLong.includes(q) ||
+        monthShort.includes(q) ||
+        dayName.includes(q) ||
+        yearStr === q ||
+        `${monthShort} ${dayNum}`.includes(q) ||
+        `${monthLong} ${dayNum}`.includes(q)
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return false;
+}
 
 interface DashboardViewProps {
   cases: CaseItem[];
@@ -35,6 +87,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Filters & Search
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedStage, setSelectedStage] = useState<string>('all');
   const [selectedLawyerId, setSelectedLawyerId] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'name-asc'>('date-desc');
@@ -57,12 +110,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const filteredCases = useMemo(() => {
     return cases
       .filter((item) => {
-        // Search filter
+        // Search filter by Case Name OR Date (and lawyer name)
         if (searchTerm.trim()) {
-          const query = searchTerm.toLowerCase();
+          const query = searchTerm.toLowerCase().trim();
           const matchName = item.case_name.toLowerCase().includes(query);
+          const matchDate = matchesCaseDate(item.case_date, query);
           const matchLawyer = item.assigned_lawyer?.name.toLowerCase().includes(query);
-          if (!matchName && !matchLawyer) return false;
+          if (!matchName && !matchDate && !matchLawyer) return false;
+        }
+
+        // Specific Date Picker Filter
+        if (selectedDate && item.case_date !== selectedDate) {
+          return false;
         }
 
         // Stage filter
@@ -90,7 +149,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
         return a.case_name.localeCompare(b.case_name);
       });
-  }, [cases, searchTerm, selectedStage, selectedLawyerId, sortBy]);
+  }, [cases, searchTerm, selectedDate, selectedStage, selectedLawyerId, sortBy]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -195,20 +254,54 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Filter & Search Bar */}
       <div className="p-4 rounded-xl bg-[#12151f] border border-[#232839] space-y-3">
-        <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-          {/* Search */}
+        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+          {/* Unified Search Bar (By Name or Date) */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search by case name or assigned lawyer..."
+              placeholder="Search cases by name or date (e.g., 'Meridian', '2026-09-18', or 'Sep')..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-[#0a0c12] border border-[#262c3e] rounded-lg pl-9 pr-3 py-2 text-xs sm:text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059]"
+              className="w-full bg-[#0a0c12] border border-[#262c3e] rounded-lg pl-9 pr-9 py-2 text-xs sm:text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] transition-colors"
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 transition-colors rounded-full"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
-          {/* Controls Group */}
+          {/* Quick Date Picker Filter */}
+          <div className="relative shrink-0 flex items-center">
+            <div className="relative w-full sm:w-auto">
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                title="Filter by exact case date"
+                className="bg-[#0a0c12] border border-[#262c3e] rounded-lg pl-8.5 pr-8 py-2 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059] cursor-pointer"
+              />
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-500 hover:text-slate-200 transition-colors"
+                  title="Clear date filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Secondary Controls Group */}
           <div className="flex flex-wrap items-center gap-2">
             {/* Stage Filter */}
             <select
@@ -245,8 +338,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               onChange={(e) => setSortBy(e.target.value as any)}
               className="bg-[#0a0c12] border border-[#262c3e] rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-[#c5a059]"
             >
-              <option value="date-desc">Newest First</option>
-              <option value="date-asc">Oldest First</option>
+              <option value="date-desc">Newest Date</option>
+              <option value="date-asc">Oldest Date</option>
               <option value="name-asc">Case Name A-Z</option>
             </select>
 
@@ -280,39 +373,84 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Active filter pills */}
-        {(searchTerm || selectedStage !== 'all' || selectedLawyerId !== 'all') && (
-          <div className="flex items-center gap-2 pt-2 border-t border-[#1a1e2b] text-[11px] text-slate-400">
+        {/* Active filter pills & results counter */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1a1e2b] text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-2">
             <span>Filtering:</span>
+            {searchTerm && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
+                Search: "{searchTerm}"
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="hover:text-rose-400"
+                  title="Remove search query"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {selectedDate && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
+                Date: {selectedDate}
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="hover:text-rose-400"
+                  title="Remove date filter"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             {selectedStage !== 'all' && (
-              <span className="px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
                 Stage: {selectedStage}
+                <button
+                  type="button"
+                  onClick={() => setSelectedStage('all')}
+                  className="hover:text-rose-400"
+                  title="Reset stage"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             )}
             {selectedLawyerId !== 'all' && (
-              <span className="px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
-                Lawyer:{' '}
-                {lawyers.find((l) => l.id === selectedLawyerId)?.name || selectedLawyerId}
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
+                Lawyer: {lawyers.find((l) => l.id === selectedLawyerId)?.name || selectedLawyerId}
+                <button
+                  type="button"
+                  onClick={() => setSelectedLawyerId('all')}
+                  className="hover:text-rose-400"
+                  title="Reset lawyer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
             )}
-            {searchTerm && (
-              <span className="px-2 py-0.5 rounded bg-[#1e2332] text-[#e5c378] border border-[#2b3349]">
-                "{searchTerm}"
-              </span>
+
+            {(searchTerm || selectedDate || selectedStage !== 'all' || selectedLawyerId !== 'all') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedDate('');
+                  setSelectedStage('all');
+                  setSelectedLawyerId('all');
+                }}
+                className="text-[#c5a059] hover:underline font-medium ml-1"
+              >
+                Clear all filters
+              </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedStage('all');
-                setSelectedLawyerId('all');
-              }}
-              className="text-[#c5a059] hover:underline ml-2"
-            >
-              Clear filters
-            </button>
           </div>
-        )}
+
+          <div className="text-slate-400">
+            Showing <strong className="text-slate-200">{filteredCases.length}</strong> of{' '}
+            <strong className="text-slate-200">{cases.length}</strong> cases
+          </div>
+        </div>
       </div>
 
       {/* Cases List Display */}

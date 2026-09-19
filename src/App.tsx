@@ -9,6 +9,12 @@ import { CaseDetailModal } from './components/CaseDetailModal';
 import { ManageTeamModal } from './components/ManageTeamModal';
 import { Loader2 } from 'lucide-react';
 import { BrandLogo } from './components/BrandLogo';
+import {
+  saveLocalProfile,
+  getLocalProfile,
+  getLocalProfilesList,
+  saveLocalProfilesList,
+} from './lib/profileCache';
 
 export default function App() {
   // App initialization state
@@ -26,22 +32,37 @@ export default function App() {
   const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
-  // 1. Load Profiles & verify if a Boss account exists
+  // 1. Load Profiles & verify if a Boss account exists (resilient to RLS errors)
   const checkBossAndLoadProfiles = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('profiles').select('*');
       if (error) {
-        console.warn('Error fetching profiles:', error);
+        console.warn('Notice loading profiles from database:', error.message);
+        // Fall back to local profiles cache
+        const cached = getLocalProfilesList();
+        if (cached.length > 0) {
+          setProfiles(cached);
+          const bossExists = cached.some((p) => p.role === 'boss');
+          setHasBossAccount(bossExists);
+          return cached;
+        }
         return [];
       }
       const loadedProfiles = (data || []) as Profile[];
       setProfiles(loadedProfiles);
+      saveLocalProfilesList(loadedProfiles);
 
       const bossExists = loadedProfiles.some((p) => p.role === 'boss');
       setHasBossAccount(bossExists);
       return loadedProfiles;
     } catch (err) {
-      console.error('Failed to verify profiles:', err);
+      console.warn('Failed to verify profiles:', err);
+      const cached = getLocalProfilesList();
+      if (cached.length > 0) {
+        setProfiles(cached);
+        setHasBossAccount(cached.some((p) => p.role === 'boss'));
+        return cached;
+      }
       return [];
     }
   }, []);
@@ -88,30 +109,46 @@ export default function App() {
         } = await supabase.auth.getSession();
 
         if (session?.user && mounted) {
-          // Find matching profile
-          const matched = loadedProfiles.find((p) => p.id === session.user.id);
+          // Find matching profile in loaded list or local cache
+          let matched = loadedProfiles.find((p) => p.id === session.user.id);
+          if (!matched) {
+            matched = getLocalProfile(session.user.id) || undefined;
+          }
+
+          if (!matched) {
+            // Check direct profile row
+            try {
+              const { data: profData } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', session.user.id)
+                .maybeSingle();
+
+              if (profData) {
+                matched = profData as Profile;
+              }
+            } catch (pErr) {
+              console.warn('Profile direct query notice:', pErr);
+            }
+          }
+
           if (matched) {
             setCurrentUser(matched);
+            saveLocalProfile(matched);
           } else {
-            // Check direct profile row
-            const { data: profData } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', session.user.id)
-              .maybeSingle();
-
-            if (profData) {
-              setCurrentUser(profData as Profile);
-            } else {
-              // Create fallback if user exists in auth
-              const fallbackRole = session.user.user_metadata?.role || 'lawyer';
-              const fallbackName = session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
-              setCurrentUser({
-                id: session.user.id,
-                name: fallbackName,
-                role: fallbackRole,
-              });
-            }
+            // Create fallback if user exists in auth
+            const fallbackRole =
+              session.user.user_metadata?.role ||
+              (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
+            const fallbackName =
+              session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
+            const fallbackProf: Profile = {
+              id: session.user.id,
+              name: fallbackName,
+              role: fallbackRole,
+            };
+            saveLocalProfile(fallbackProf);
+            setCurrentUser(fallbackProf);
           }
         }
       } catch (e) {
@@ -132,14 +169,39 @@ export default function App() {
       if (event === 'SIGNED_OUT' || !session) {
         setCurrentUser(null);
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        const { data: profData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .maybeSingle();
+        let matched = getLocalProfile(session.user.id);
+        if (!matched) {
+          try {
+            const { data: profData } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', session.user.id)
+              .maybeSingle();
 
-        if (profData) {
-          setCurrentUser(profData as Profile);
+            if (profData) {
+              matched = profData as Profile;
+            }
+          } catch (pErr) {
+            console.warn('Auth state change profile lookup notice:', pErr);
+          }
+        }
+
+        if (matched) {
+          setCurrentUser(matched);
+          saveLocalProfile(matched);
+        } else {
+          const fallbackRole =
+            session.user.user_metadata?.role ||
+            (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
+          const fallbackName =
+            session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
+          const prof: Profile = {
+            id: session.user.id,
+            name: fallbackName,
+            role: fallbackRole,
+          };
+          saveLocalProfile(prof);
+          setCurrentUser(prof);
         }
       }
     });

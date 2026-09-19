@@ -113,6 +113,13 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
               </li>
             </ol>
 
+            <div className="p-3 rounded-lg bg-[#0d1017] border border-[#272d40] text-[11px] text-slate-300 space-y-1">
+              <span className="font-semibold text-[#e5c378] block">Tip for fast onboarding & zero email limits:</span>
+              <p className="text-slate-400">
+                In Supabase Dashboard → <strong>Authentication</strong> → <strong>Providers</strong> → <strong>Email</strong>, turn off <span className="text-slate-200">"Confirm email"</span>. This removes Supabase's hourly email rate limit and allows instant logins with either a plain username (like <span className="font-mono text-slate-200">alex</span>) or email!
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <a
                 href="https://supabase.com/dashboard/project/neyhwgzefhtphwtaqfua"
