@@ -29,7 +29,6 @@ interface CaseDetailModalProps {
   onClose: () => void;
   onCaseDeleted?: (deletedId: string) => void;
   onCaseUpdated?: (updatedCase: CaseItem) => void;
-  onOpenAddFile?: (caseId: string) => void;
 }
 
 export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
@@ -39,7 +38,6 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   onClose,
   onCaseDeleted,
   onCaseUpdated,
-  onOpenAddFile,
 }) => {
   const isBoss = currentUser.role === 'boss';
 
@@ -48,7 +46,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Edit mode states (Available to both Boss & Lawyers)
+  // Edit mode states (Boss only)
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editDate, setEditDate] = useState('');
@@ -57,7 +55,8 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   const [newPhotoFile, setNewPhotoFile] = useState<File | null>(null);
   const [newPhotoPreview, setNewPhotoPreview] = useState<string | null>(null);
 
-  // Uploading document state (available to both Boss and Lawyer)
+  // Document staging and upload state (Available to all firm members - exactly like NewCaseModal)
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [uploadDocMsg, setUploadDocMsg] = useState<string | null>(null);
   const [isDraggingDoc, setIsDraggingDoc] = useState(false);
@@ -69,6 +68,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
   // File deletion state (Available to all firm members)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
+  const [confirmDeleteFileId, setConfirmDeleteFileId] = useState<string | null>(null);
 
   // Fetch initial case data and files
   const loadCaseData = async () => {
@@ -174,9 +174,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
   if (!caseId) return null;
 
-  // Updates Stage (Available to all firm counsel)
+  // Updates Stage (Boss only)
   const handleStageChange = async (newStage: CaseStage) => {
-    if (!currentCase) return;
+    if (!isBoss || !currentCase) return;
     setErrorMsg(null);
 
     // Optimistic update
@@ -201,10 +201,10 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Saves edits (name, date, lawyer, photo)
+  // Saves edits (name, date, lawyer, photo - Boss only)
   const handleSaveEdits = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentCase) return;
+    if (!isBoss || !currentCase) return;
     setErrorMsg(null);
     setEditSaving(true);
 
@@ -361,20 +361,42 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  const handleDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Staging handlers (Identical to NewCaseModal flow)
+  const handleDocumentsSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg(null);
     const selected = Array.from(e.target.files || []);
-    processDocumentFiles(selected);
-    e.target.value = '';
-  };
+    if (selected.length === 0) return;
 
-  // Delete a document (available with confirmation to all firm members)
-  const handleDeleteFile = async (file: CaseFile) => {
-    if (!currentCase) return;
-    if (!window.confirm(`Are you sure you want to permanently delete "${file.file_name}"?`)) {
+    const oversized = selected.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+    if (oversized.length > 0) {
+      setErrorMsg(
+        `File "${oversized[0].name}" exceeds the 50MB limit (${formatBytes(
+          oversized[0].size
+        )}). Maximum allowed size is 50MB per file.`
+      );
+      e.target.value = '';
       return;
     }
 
+    setStagedFiles((prev) => [...prev, ...selected]);
+    e.target.value = '';
+  };
+
+  const removeStagedFile = (index: number) => {
+    setStagedFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUploadStagedFiles = async () => {
+    if (stagedFiles.length === 0 || !currentCase) return;
+    await processDocumentFiles(stagedFiles);
+    setStagedFiles([]);
+  };
+
+  // Delete a document (available to firm members)
+  const handleDeleteFile = async (file: CaseFile) => {
+    if (!currentCase) return;
     setDeletingFileId(file.id);
+    setConfirmDeleteFileId(null);
     setErrorMsg(null);
 
     try {
@@ -458,12 +480,12 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {!isEditing && (
+            {isBoss && !isEditing && (
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-slate-200 border border-[#2e364a] hover:border-[#c5a059]/60 transition-colors cursor-pointer"
-                title="Edit case title, date, photo, or counsel"
+                title="Edit case title, date, photo, or counsel (Boss only)"
               >
                 <Edit2 className="w-3.5 h-3.5 text-[#c5a059]" />
                 <span className="hidden sm:inline">Edit Details</span>
@@ -736,17 +758,27 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
                     <div>
                       <div className="flex items-center gap-2">
-                        <select
-                          value={currentCase.stage}
-                          onChange={(e) => handleStageChange(e.target.value as CaseStage)}
-                          className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
-                        >
-                          {CASE_STAGES.map((s) => (
-                            <option key={s} value={s} className="bg-[#12151e] text-slate-100">
-                              {s}
-                            </option>
-                          ))}
-                        </select>
+                        {isBoss ? (
+                          <select
+                            value={currentCase.stage}
+                            onChange={(e) => handleStageChange(e.target.value as CaseStage)}
+                            className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
+                            title="Update proceeding stage (Boss only)"
+                          >
+                            {CASE_STAGES.map((s) => (
+                              <option key={s} value={s} className="bg-[#12151e] text-slate-100">
+                                {s}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${stageCfg.bg} ${stageCfg.text} ${stageCfg.border}`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${stageCfg.dot}`} />
+                            <span>{currentCase.stage}</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -773,40 +805,24 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                   </p>
                 </div>
 
-                {/* Upload Buttons: AVAILABLE TO BOTH BOSS AND LAWYERS */}
+                {/* Add Files Button */}
                 <div className="flex items-center gap-2">
-                  {onOpenAddFile && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenAddFile(currentCase.id)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-[#faebd0] border border-[#2e364a] hover:border-[#c5a059]/60 transition-all cursor-pointer"
-                      title="Open full upload dialog with multi-file manager"
-                    >
-                      <UploadCloud className="w-3.5 h-3.5 text-[#c5a059]" />
-                      <span className="hidden sm:inline">Upload Dialog</span>
-                    </button>
-                  )}
-
                   <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold bg-[#1d2232] hover:bg-[#252b3f] text-[#faebd0] border border-[#c5a059]/40 hover:border-[#c5a059] cursor-pointer transition-all shadow-sm">
-                    {isUploadingDoc ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#c5a059]" />
-                    ) : (
-                      <Upload className="w-3.5 h-3.5 text-[#c5a059]" />
-                    )}
-                    <span>{isUploadingDoc ? 'Uploading...' : '+ Upload Document'}</span>
+                    <Upload className="w-3.5 h-3.5 text-[#c5a059]" />
+                    <span>+ Add Files</span>
                     <input
                       ref={docInputRef}
                       type="file"
                       multiple
                       disabled={isUploadingDoc}
-                      onChange={handleDocumentUpload}
+                      onChange={handleDocumentsSelect}
                       className="hidden"
                     />
                   </label>
                 </div>
               </div>
 
-              {/* Drag and Drop Zone for Attorneys */}
+              {/* Drag and Drop Zone */}
               <div
                 onDragOver={(e) => {
                   e.preventDefault();
@@ -817,7 +833,14 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                   e.preventDefault();
                   setIsDraggingDoc(false);
                   const dropped = Array.from(e.dataTransfer.files);
-                  processDocumentFiles(dropped);
+                  const oversized = dropped.filter((f) => f.size > MAX_FILE_SIZE_BYTES);
+                  if (oversized.length > 0) {
+                    setErrorMsg(
+                      `File "${oversized[0].name}" exceeds 50MB limit. Maximum allowed size is 50MB.`
+                    );
+                    return;
+                  }
+                  setStagedFiles((prev) => [...prev, ...dropped]);
                 }}
                 onClick={() => docInputRef.current?.click()}
                 className={`p-4 rounded-xl border-2 border-dashed transition-all text-center cursor-pointer flex items-center justify-center gap-3 ${
@@ -835,6 +858,75 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                   <p className="text-[10px] text-slate-500">PDF, Word, Scans, Media (up to 50MB per file)</p>
                 </div>
               </div>
+
+              {/* Staged Files Preview (The exact way boss adds files) */}
+              {stagedFiles.length > 0 && (
+                <div className="p-4 rounded-xl bg-[#0e111a] border border-[#c5a059]/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#e5c378] uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Attached Documents to Upload ({stagedFiles.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStagedFiles([])}
+                      disabled={isUploadingDoc}
+                      className="text-[11px] text-slate-400 hover:text-rose-400 transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {stagedFiles.map((file, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-[#141824] border border-[#23293c] text-xs"
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <FileText className="w-4 h-4 text-[#c5a059] shrink-0" />
+                          <span className="truncate text-slate-200 font-medium">{file.name}</span>
+                          <span className="text-[10px] text-slate-500 shrink-0">
+                            ({formatBytes(file.size)})
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeStagedFile(idx)}
+                          disabled={isUploadingDoc}
+                          className="p-1 rounded text-slate-400 hover:text-rose-400 transition-colors disabled:opacity-50 cursor-pointer"
+                          title="Remove file"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Upload Action Button */}
+                  <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#1f2434]">
+                    <button
+                      type="button"
+                      onClick={handleUploadStagedFiles}
+                      disabled={isUploadingDoc}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-[#c5a059] hover:bg-[#d4af37] text-[#0d0f15] shadow transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isUploadingDoc ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <UploadCloud className="w-4 h-4" />
+                      )}
+                      <span>
+                        {isUploadingDoc
+                          ? 'Uploading Files...'
+                          : `Upload ${stagedFiles.length} Document${
+                              stagedFiles.length > 1 ? 's' : ''
+                            } to Docket`}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {uploadDocMsg && (
                 <div className="p-3 rounded-lg bg-[#141824] border border-[#c5a059]/30 text-xs text-[#faebd0] flex items-center gap-2">
@@ -896,19 +988,40 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                               </a>
 
                               {/* Delete Button (Available to firm members) */}
-                              <button
-                                type="button"
-                                disabled={deletingFileId === file.id}
-                                onClick={() => handleDeleteFile(file)}
-                                className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
-                                title="Delete Document"
-                              >
-                                {deletingFileId === file.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                              {confirmDeleteFileId === file.id ? (
+                                <div className="inline-flex items-center gap-1.5 bg-rose-950/80 border border-rose-800 rounded-md px-2 py-1 text-xs">
+                                  <span className="text-rose-200 text-[11px] font-medium">Delete?</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteFile(file)}
+                                    disabled={deletingFileId === file.id}
+                                    className="px-1.5 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold cursor-pointer text-[10px]"
+                                  >
+                                    Yes
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteFileId(null)}
+                                    className="px-1.5 py-0.5 hover:bg-slate-700 text-slate-300 rounded cursor-pointer text-[10px]"
+                                  >
+                                    No
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={deletingFileId === file.id}
+                                  onClick={() => setConfirmDeleteFileId(file.id)}
+                                  className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
+                                  title="Delete Document"
+                                >
+                                  {deletingFileId === file.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>

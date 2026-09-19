@@ -7,7 +7,6 @@ import { DashboardView } from './components/DashboardView';
 import { NewCaseModal } from './components/NewCaseModal';
 import { CaseDetailModal } from './components/CaseDetailModal';
 import { ManageTeamModal } from './components/ManageTeamModal';
-import { AddFileModal } from './components/AddFileModal';
 import { Loader2 } from 'lucide-react';
 import { BrandLogo } from './components/BrandLogo';
 import {
@@ -31,8 +30,6 @@ export default function App() {
   // Modals
   const [isNewCaseOpen, setIsNewCaseOpen] = useState(false);
   const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
-  const [isAddFileOpen, setIsAddFileOpen] = useState(false);
-  const [addFileTargetCaseId, setAddFileTargetCaseId] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
   // 1. Load Profiles & verify if a Boss account exists (resilient to RLS errors)
@@ -364,10 +361,6 @@ export default function App() {
         currentUser={currentUser}
         onOpenNewCase={() => setIsNewCaseOpen(true)}
         onOpenManageTeam={() => setIsManageTeamOpen(true)}
-        onOpenAddFile={() => {
-          setAddFileTargetCaseId(null);
-          setIsAddFileOpen(true);
-        }}
         onSignOut={handleSignOut}
         realtimeConnected={realtimeConnected}
       />
@@ -380,37 +373,20 @@ export default function App() {
           lawyers={profiles}
           onSelectCase={(id) => setSelectedCaseId(id)}
           onOpenNewCase={() => setIsNewCaseOpen(true)}
-          onOpenAddFile={(caseId) => {
-            setAddFileTargetCaseId(caseId || null);
-            setIsAddFileOpen(true);
-          }}
         />
       </main>
 
       {/* Modals */}
-      {/* Add File Modal (Available to all firm members - Boss & Lawyers) */}
-      <AddFileModal
-        isOpen={isAddFileOpen}
-        onClose={() => {
-          setIsAddFileOpen(false);
-          setAddFileTargetCaseId(null);
-        }}
-        cases={cases}
-        targetCaseId={addFileTargetCaseId}
-        currentUser={currentUser}
-        onSuccess={(_caseId, _addedFiles) => {
-          // Upload complete
-        }}
-      />
-
-      {/* New Case Modal (Available to both Boss & Lawyers) */}
-      <NewCaseModal
-        isOpen={isNewCaseOpen}
-        onClose={() => setIsNewCaseOpen(false)}
-        onSuccess={handleCaseCreated}
-        lawyers={profiles}
-        currentUser={currentUser}
-      />
+      {/* New Case Modal (Boss only) */}
+      {currentUser.role === 'boss' && isNewCaseOpen && (
+        <NewCaseModal
+          isOpen={isNewCaseOpen}
+          onClose={() => setIsNewCaseOpen(false)}
+          onSuccess={handleCaseCreated}
+          lawyers={profiles}
+          currentUser={currentUser}
+        />
+      )}
 
       {/* Manage Team Modal (Boss only) */}
       {currentUser.role === 'boss' && (
@@ -425,7 +401,7 @@ export default function App() {
         />
       )}
 
-      {/* Case Detail Modal (Viewable, editable, and document upload by both Boss & Lawyers) */}
+      {/* Case Detail Modal (Viewable, and document upload by both Boss & Lawyers; case editing/deletion by Boss) */}
       {selectedCaseId && (
         <CaseDetailModal
           caseId={selectedCaseId}
@@ -434,10 +410,6 @@ export default function App() {
           onClose={() => setSelectedCaseId(null)}
           onCaseDeleted={handleCaseDeleted}
           onCaseUpdated={handleCaseUpdated}
-          onOpenAddFile={(targetCase) => {
-            setAddFileTargetCaseId(targetCase);
-            setIsAddFileOpen(true);
-          }}
         />
       )}
     </div>
