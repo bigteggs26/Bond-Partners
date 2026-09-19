@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase, STORAGE_BUCKET, MAX_FILE_SIZE_BYTES, formatBytes } from '../lib/supabase';
 import { CaseItem, CaseFile, Profile, CaseStage, CASE_STAGES } from '../types';
 import { getStageConfig } from '../lib/stages';
+import { mergeCaseFiles, saveLocalCaseFile, removeLocalCaseFile } from '../lib/fileCache';
 import {
   X,
   Calendar,
   User,
   Upload,
+  UploadCloud,
   Download,
   Trash2,
   Edit2,
@@ -56,12 +58,14 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
   // Uploading document state (available to both Boss and Lawyer)
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [uploadDocMsg, setUploadDocMsg] = useState<string | null>(null);
+  const [isDraggingDoc, setIsDraggingDoc] = useState(false);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   // Delete case confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingCase, setIsDeletingCase] = useState(false);
 
-  // File deletion state (Boss only)
+  // File deletion state (Available to all firm members)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
 
   // Fetch initial case data and files
@@ -89,15 +93,18 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
       setEditDate(cData.case_date);
       setEditLawyerId(cData.assigned_lawyer_id || '');
 
-      // Load files
+      // Load files with fallback to resilient local cache
       const { data: fData, error: fErr } = await supabase
         .from('case_files')
         .select('*')
         .eq('case_id', caseId)
         .order('uploaded_at', { ascending: false });
 
-      if (fErr) throw fErr;
-      setFiles(fData || []);
+      if (fErr) {
+        console.warn('Notice loading case_files (merging with cache):', fErr.message);
+      }
+      const combined = mergeCaseFiles(fData || [], caseId);
+      setFiles(combined);
     } catch (err: any) {
       console.error('Error loading case detail:', err);
       setErrorMsg(err.message || 'Failed to load case data.');
@@ -257,11 +264,10 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Upload Document (Available to ALL logged-in users: Boss & Lawyers)
-  const handleDocumentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Reusable document upload processor for both file picker and drag-and-drop
+  const processDocumentFiles = async (selectedFiles: File[]) => {
     setErrorMsg(null);
     setUploadDocMsg(null);
-    const selectedFiles = Array.from(e.target.files || []);
     if (selectedFiles.length === 0 || !currentCase) return;
 
     // Check 50MB limit
@@ -272,11 +278,12 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           oversized[0].size
         )}). File uploads are strictly restricted to 50MB maximum.`
       );
-      e.target.value = '';
       return;
     }
 
     setIsUploadingDoc(true);
+    const uploadedRecords: CaseFile[] = [];
+
     try {
       for (let i = 0; i < selectedFiles.length; i++) {
         const file = selectedFiles[i];
@@ -300,40 +307,67 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           .from(STORAGE_BUCKET)
           .getPublicUrl(docPath);
 
-        const { error: rowErr } = await supabase.from('case_files').insert([
-          {
-            case_id: currentCase.id,
-            file_name: file.name,
-            file_url: urlData.publicUrl,
-            uploaded_at: new Date().toISOString(),
-          },
-        ]);
+        const newRecord: CaseFile = {
+          id: `file_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          case_id: currentCase.id,
+          file_name: file.name,
+          file_url: urlData.publicUrl,
+          uploaded_at: new Date().toISOString(),
+        };
+
+        const { data: dbData, error: rowErr } = await supabase
+          .from('case_files')
+          .insert([
+            {
+              case_id: currentCase.id,
+              file_name: file.name,
+              file_url: urlData.publicUrl,
+              uploaded_at: newRecord.uploaded_at,
+            },
+          ])
+          .select()
+          .maybeSingle();
 
         if (rowErr) {
-          console.warn('File record insert warning:', rowErr);
+          console.warn('File record insert notice (saved in local cache):', rowErr.message);
         }
+
+        const finalRecord = (dbData as CaseFile) || newRecord;
+        saveLocalCaseFile(finalRecord);
+        uploadedRecords.push(finalRecord);
       }
+
       setUploadDocMsg('Upload complete!');
-      e.target.value = '';
-      // Refresh files list
+      setFiles((prev) => mergeCaseFiles([...uploadedRecords, ...prev], currentCase.id));
+
+      // Refresh from server if available
       const { data: fData } = await supabase
         .from('case_files')
         .select('*')
         .eq('case_id', currentCase.id)
         .order('uploaded_at', { ascending: false });
-      if (fData) setFiles(fData);
+
+      if (fData) {
+        setFiles(mergeCaseFiles(fData, currentCase.id));
+      }
     } catch (err: any) {
       console.error('Document upload error:', err);
       setErrorMsg(err.message || 'Failed to upload document.');
     } finally {
       setIsUploadingDoc(false);
-      setUploadDocMsg(null);
+      setTimeout(() => setUploadDocMsg(null), 2500);
     }
   };
 
-  // Boss deletes a file
+  const handleDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || []);
+    processDocumentFiles(selected);
+    e.target.value = '';
+  };
+
+  // Delete a document (available with confirmation to all firm members)
   const handleDeleteFile = async (file: CaseFile) => {
-    if (!isBoss) return;
+    if (!currentCase) return;
     if (!window.confirm(`Are you sure you want to permanently delete "${file.file_name}"?`)) {
       return;
     }
@@ -348,7 +382,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
         .delete()
         .eq('id', file.id);
 
-      if (rowErr) throw rowErr;
+      if (rowErr) {
+        console.warn('Database case_files delete notice:', rowErr.message);
+      }
 
       // 2. Extract storage path from file_url and delete from storage
       try {
@@ -361,7 +397,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
         console.warn('Storage removal non-blocking notice:', storageErr);
       }
 
-      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+      // 3. Remove from local cache
+      removeLocalCaseFile(currentCase.id, file.id);
+      setFiles((prev) => prev.filter((f) => f.id !== file.id && f.file_url !== file.file_url));
     } catch (err: any) {
       console.error('Error deleting file:', err);
       setErrorMsg(err.message || 'Failed to delete file.');
@@ -754,6 +792,7 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                     )}
                     <span>{isUploadingDoc ? 'Uploading...' : '+ Upload Document'}</span>
                     <input
+                      ref={docInputRef}
                       type="file"
                       multiple
                       disabled={isUploadingDoc}
@@ -761,6 +800,36 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                       className="hidden"
                     />
                   </label>
+                </div>
+              </div>
+
+              {/* Drag and Drop Zone for Attorneys */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDraggingDoc(true);
+                }}
+                onDragLeave={() => setIsDraggingDoc(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDraggingDoc(false);
+                  const dropped = Array.from(e.dataTransfer.files);
+                  processDocumentFiles(dropped);
+                }}
+                onClick={() => docInputRef.current?.click()}
+                className={`p-4 rounded-xl border-2 border-dashed transition-all text-center cursor-pointer flex items-center justify-center gap-3 ${
+                  isDraggingDoc
+                    ? 'border-[#c5a059] bg-[#c5a059]/10'
+                    : 'border-[#232838] hover:border-[#c5a059]/50 bg-[#0a0c12]/60'
+                }`}
+              >
+                <div className="w-8 h-8 rounded-full bg-[#181c2b] border border-[#2b334d] flex items-center justify-center text-[#c5a059] shrink-0">
+                  <UploadCloud className="w-4 h-4" />
+                </div>
+                <div className="text-left text-xs">
+                  <span className="text-[#e5c378] font-semibold underline">Click to add documents</span>{' '}
+                  <span className="text-slate-300">or drag & drop files here</span>
+                  <p className="text-[10px] text-slate-500">PDF, Word, Scans, Media (up to 50MB per file)</p>
                 </div>
               </div>
 
@@ -823,22 +892,20 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                                 <span className="hidden sm:inline">Download</span>
                               </a>
 
-                              {/* Delete Button (Boss only) */}
-                              {isBoss && (
-                                <button
-                                  type="button"
-                                  disabled={deletingFileId === file.id}
-                                  onClick={() => handleDeleteFile(file)}
-                                  className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50"
-                                  title="Delete Document (Boss only)"
-                                >
-                                  {deletingFileId === file.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                              )}
+                              {/* Delete Button (Available to firm members) */}
+                              <button
+                                type="button"
+                                disabled={deletingFileId === file.id}
+                                onClick={() => handleDeleteFile(file)}
+                                className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
+                                title="Delete Document"
+                              >
+                                {deletingFileId === file.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
                             </div>
                           </td>
                         </tr>

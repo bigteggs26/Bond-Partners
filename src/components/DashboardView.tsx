@@ -15,6 +15,8 @@ import {
   List,
   Sparkles,
   X,
+  UploadCloud,
+  Paperclip,
 } from 'lucide-react';
 
 // Helper to match dates in multiple formats (e.g., "2026-09-18", "Sep 18", "September", "2026")
@@ -74,6 +76,7 @@ interface DashboardViewProps {
   lawyers: Profile[];
   onSelectCase: (caseId: string) => void;
   onOpenNewCase: () => void;
+  onOpenAddFile?: (caseId?: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -82,6 +85,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   lawyers,
   onSelectCase,
   onOpenNewCase,
+  onOpenAddFile,
 }) => {
   const isBoss = currentUser.role === 'boss';
 
@@ -177,16 +181,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
 
-        {isBoss && (
+        <div className="flex items-center gap-2.5 shrink-0 self-start md:self-end">
           <button
             type="button"
-            onClick={onOpenNewCase}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all cursor-pointer shrink-0 self-start md:self-end"
+            onClick={() => onOpenAddFile?.()}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-xs font-bold tracking-wide bg-[#1a1e2c] hover:bg-[#252b3e] text-[#faebd0] border border-[#c5a059]/40 hover:border-[#c5a059] shadow-sm transition-all cursor-pointer"
+            title="Upload and attach documents to cases"
           >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>+ File New Case</span>
+            <UploadCloud className="w-4 h-4 text-[#c5a059]" />
+            <span>+ Add Case File</span>
           </button>
-        )}
+
+          {isBoss && (
+            <button
+              type="button"
+              onClick={onOpenNewCase}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>+ File New Case</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -548,7 +564,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
 
                   {/* Footer with Lawyer & Action */}
-                  <div className="pt-3 border-t border-[#1d2232] flex items-center justify-between">
+                  <div className="pt-3 border-t border-[#1d2232] flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-6 h-6 rounded-full bg-[#1e2332] border border-[#2f374e] flex items-center justify-center text-[10px] font-bold text-slate-300 shrink-0">
                         {caseItem.assigned_lawyer?.name
@@ -560,9 +576,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="inline-flex items-center gap-1 text-xs text-[#c5a059] font-semibold group-hover:translate-x-0.5 transition-transform shrink-0">
-                      <span>View Docket</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onOpenAddFile?.(caseItem.id);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#1a1f2e] hover:bg-[#252c42] border border-[#2a3248] hover:border-[#c5a059]/60 text-slate-300 hover:text-[#faebd0] text-[11px] font-semibold transition-all shadow-sm cursor-pointer"
+                        title="Attach document to this case"
+                      >
+                        <UploadCloud className="w-3 h-3 text-[#c5a059]" />
+                        <span>Add File</span>
+                      </button>
+
+                      <div className="inline-flex items-center gap-0.5 text-xs text-[#c5a059] font-semibold group-hover:translate-x-0.5 transition-transform">
+                        <span>View</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -625,9 +656,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       {caseItem.case_date}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1a1f2d] group-hover:bg-[#252c3f] text-[#c5a059] font-medium text-xs">
-                        Open <ChevronRight className="w-3 h-3" />
-                      </span>
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenAddFile?.(caseItem.id);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#181c2a] hover:bg-[#252c40] border border-[#273046] hover:border-[#c5a059]/60 text-slate-300 hover:text-[#faebd0] font-semibold text-[11px] transition-colors cursor-pointer"
+                          title="Attach document to this docket"
+                        >
+                          <UploadCloud className="w-3 h-3 text-[#c5a059]" />
+                          <span>Add File</span>
+                        </button>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#1a1f2d] group-hover:bg-[#252c3f] text-[#c5a059] font-medium text-xs">
+                          Open <ChevronRight className="w-3 h-3" />
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 );

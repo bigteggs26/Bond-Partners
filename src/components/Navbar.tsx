@@ -1,12 +1,13 @@
 import React from 'react';
 import { BrandLogo } from './BrandLogo';
 import { Profile } from '../types';
-import { Plus, Users, LogOut, Radio, Shield } from 'lucide-react';
+import { Plus, Users, LogOut, Radio, Shield, UploadCloud } from 'lucide-react';
 
 interface NavbarProps {
   currentUser: Profile;
   onOpenNewCase: () => void;
   onOpenManageTeam: () => void;
+  onOpenAddFile?: () => void;
   onSignOut: () => void;
   realtimeConnected: boolean;
 }
@@ -15,6 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   onOpenNewCase,
   onOpenManageTeam,
+  onOpenAddFile,
   onSignOut,
   realtimeConnected,
 }) => {
@@ -30,7 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Action Items */}
-          <div className="flex items-center gap-3 sm:gap-4">
+          <div className="flex items-center gap-2.5 sm:gap-4">
             {/* Realtime Status Indicator */}
             <div
               className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] bg-[#141722] border border-[#23293a] text-slate-400"
@@ -50,6 +52,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {realtimeConnected ? 'Live Realtime Sync' : 'Connecting...'}
               </span>
             </div>
+
+            {/* Quick Upload Action for All Firm Members */}
+            <button
+              type="button"
+              onClick={onOpenAddFile}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-[#181c28] hover:bg-[#202535] text-[#faebd0] border border-[#2e3447] hover:border-[#c5a059]/60 transition-colors cursor-pointer"
+              title="Upload documents to case dockets"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-[#c5a059]" />
+              <span className="hidden sm:inline">Add File</span>
+            </button>
 
             {/* Boss Specific Controls */}
             {isBoss && (
