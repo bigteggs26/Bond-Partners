@@ -174,9 +174,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
   if (!caseId) return null;
 
-  // Updates Stage (Boss only)
+  // Updates Stage (Available to all counsel)
   const handleStageChange = async (newStage: CaseStage) => {
-    if (!isBoss || !currentCase) return;
+    if (!currentCase) return;
     setErrorMsg(null);
 
     // Optimistic update
@@ -201,10 +201,10 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Saves edits (name, date, lawyer, photo - Boss only)
+  // Saves edits (name, date, lawyer, photo - Available to all counsel)
   const handleSaveEdits = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isBoss || !currentCase) return;
+    if (!currentCase) return;
     setErrorMsg(null);
     setEditSaving(true);
 
@@ -432,9 +432,9 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Boss deletes entire case
+  // Deletes entire case
   const handleDeleteCase = async () => {
-    if (!isBoss || !currentCase) return;
+    if (!currentCase) return;
     setIsDeletingCase(true);
     setErrorMsg(null);
 
@@ -480,24 +480,24 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {isBoss && !isEditing && (
+            {!isEditing && (
               <button
                 type="button"
                 onClick={() => setIsEditing(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#1a1f2d] hover:bg-[#23293c] text-slate-200 border border-[#2e364a] hover:border-[#c5a059]/60 transition-colors cursor-pointer"
-                title="Edit case title, date, photo, or counsel (Boss only)"
+                title="Edit case title, date, photo, or counsel"
               >
                 <Edit2 className="w-3.5 h-3.5 text-[#c5a059]" />
                 <span className="hidden sm:inline">Edit Details</span>
               </button>
             )}
 
-            {isBoss && !isEditing && (
+            {!isEditing && (
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors"
-                title="Delete Case Docket (Boss only)"
+                title="Delete Case Docket"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -758,27 +758,18 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
 
                     <div>
                       <div className="flex items-center gap-2">
-                        {isBoss ? (
-                          <select
-                            value={currentCase.stage}
-                            onChange={(e) => handleStageChange(e.target.value as CaseStage)}
-                            className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
-                            title="Update proceeding stage (Boss only)"
-                          >
-                            {CASE_STAGES.map((s) => (
-                              <option key={s} value={s} className="bg-[#12151e] text-slate-100">
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${stageCfg.bg} ${stageCfg.text} ${stageCfg.border}`}
-                          >
-                            <span className={`w-2 h-2 rounded-full ${stageCfg.dot}`} />
-                            <span>{currentCase.stage}</span>
-                          </span>
-                        )}
+                        <select
+                          value={currentCase.stage}
+                          onChange={(e) => handleStageChange(e.target.value as CaseStage)}
+                          className="bg-[#141824] border border-[#c5a059]/40 text-[#faebd0] rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#c5a059] cursor-pointer"
+                          title="Update proceeding stage"
+                        >
+                          {CASE_STAGES.map((s) => (
+                            <option key={s} value={s} className="bg-[#12151e] text-slate-100">
+                              {s}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                   </div>

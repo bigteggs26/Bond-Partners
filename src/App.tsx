@@ -377,8 +377,8 @@ export default function App() {
       </main>
 
       {/* Modals */}
-      {/* New Case Modal (Boss only) */}
-      {currentUser.role === 'boss' && isNewCaseOpen && (
+      {/* New Case Modal (Available to Boss & Lawyers) */}
+      {isNewCaseOpen && (
         <NewCaseModal
           isOpen={isNewCaseOpen}
           onClose={() => setIsNewCaseOpen(false)}

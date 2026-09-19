@@ -51,9 +51,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
 
-            {/* Boss Specific Controls */}
-            {isBoss && (
-              <div className="flex items-center gap-2">
+            {/* Team & New Case Controls */}
+            <div className="flex items-center gap-2">
+              {isBoss && (
                 <button
                   type="button"
                   onClick={onOpenManageTeam}
@@ -63,18 +63,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Users className="w-3.5 h-3.5 text-[#c5a059]" />
                   <span className="hidden sm:inline">Manage Team</span>
                 </button>
+              )}
 
-                <button
-                  type="button"
-                  onClick={onOpenNewCase}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-md shadow-[#c5a059]/20 transition-all cursor-pointer"
-                  title="File a new case docket with photos and evidentiary documents"
-                >
-                  <Plus className="w-4 h-4 stroke-[2.5]" />
-                  <span>+ New Case</span>
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={onOpenNewCase}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-md shadow-[#c5a059]/20 transition-all cursor-pointer"
+                title="File a new case docket with photos and evidentiary documents"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>+ New Case</span>
+              </button>
+            </div>
 
             {/* User Profile Capsule */}
             <div className="flex items-center gap-2 pl-2 sm:pl-3 sm:border-l border-[#242938]">
