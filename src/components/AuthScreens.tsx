@@ -3,7 +3,6 @@ import { supabase } from '../lib/supabase';
 import { Profile } from '../types';
 import { BrandLogo } from './BrandLogo';
 import {
-  ShieldCheck,
   User,
   Lock,
   Loader2,
@@ -19,9 +18,9 @@ import {
 import { saveLocalProfile, getLocalProfile } from '../lib/profileCache';
 
 interface AuthScreensProps {
-  hasBossAccount: boolean;
+  hasBossAccount?: boolean;
   onAuthSuccess: (profile: Profile) => void;
-  onRefreshBossCheck: () => void;
+  onRefreshBossCheck?: () => void;
 }
 
 // Generate possible email variations for a given input
@@ -32,7 +31,6 @@ const getCandidateEmails = (identifier: string): string[] => {
     return [clean];
   }
   const sanitized = clean.replace(/[^a-z0-9._-]/g, '') || 'counsel';
-  // Check both internal domain and .com domain used in earlier versions/manual Supabase setups
   return [
     `${sanitized}@bondpartners.internal`,
     `${sanitized}@bondpartners.com`,
@@ -40,12 +38,10 @@ const getCandidateEmails = (identifier: string): string[] => {
 };
 
 export const AuthScreens: React.FC<AuthScreensProps> = ({
-  hasBossAccount,
   onAuthSuccess,
-  onRefreshBossCheck,
 }) => {
-  // Default mode
-  const [mode, setMode] = useState<'setup' | 'login' | 'lawyer'>(hasBossAccount ? 'login' : 'setup');
+  // Two clean modes: 'login' and 'signup'
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
 
   // Form states
   const [name, setName] = useState('');
@@ -57,6 +53,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
   const [showForgotNotice, setShowForgotNotice] = useState(false);
 
+  // Lawyer Sign Up Handler
   const handleLawyerSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -97,7 +94,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
       if (authError) {
         if (authError.message?.toLowerCase().includes('already registered')) {
           setShowForgotNotice(true);
-          throw new Error('This account already exists. Please switch to the Sign In tab to log in.');
+          throw new Error('This account already exists. Please switch to Sign In to log in.');
         }
         throw authError;
       }
@@ -114,7 +111,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
         created_at: new Date().toISOString(),
       };
 
-      // Ensure profile exists in database profiles table for FK constraints
+      // Ensure lawyer profile exists in database profiles table for FK constraints
       try {
         await supabase.from('profiles').upsert([
           {
@@ -137,193 +134,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
     }
   };
 
-  const handleBossSetup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setInfoMsg(null);
-    setShowForgotNotice(false);
-
-    if (!name.trim()) {
-      setErrorMsg('Please enter the Managing Partner (Boss) name.');
-      return;
-    }
-    if (!identifier.trim() || !password) {
-      setErrorMsg('Please enter a username or email, and a password.');
-      return;
-    }
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
-      return;
-    }
-
-    const candidateEmails = getCandidateEmails(identifier);
-    const primaryEmail = candidateEmails[0];
-
-    setLoading(true);
-    try {
-      let authUser: any = null;
-
-      // 1. Attempt to Sign up user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: primaryEmail,
-        password: password,
-        options: {
-          data: {
-            name: name.trim(),
-            username: identifier.trim(),
-            role: 'boss',
-          },
-        },
-      });
-
-      if (authError) {
-        const errorLower = authError.message.toLowerCase();
-
-        // CASE 1: User already exists -> Attempt direct sign-in across all candidate emails
-        if (
-          errorLower.includes('already registered') ||
-          errorLower.includes('already exists') ||
-          errorLower.includes('user already exists')
-        ) {
-          console.info('Account exists, attempting direct sign in across candidate emails...');
-          let signedInUser: any = null;
-
-          for (const candEmail of candidateEmails) {
-            const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-              email: candEmail,
-              password: password,
-            });
-            if (!signInErr && signInData.user) {
-              signedInUser = signInData.user;
-              break;
-            }
-          }
-
-          if (signedInUser) {
-            authUser = signedInUser;
-          } else {
-            setMode('login');
-            setErrorMsg(
-              `An account for "${identifier}" already exists in Supabase. Please enter your existing password on the Sign In tab, or choose a different username (e.g. ${identifier}2).`
-            );
-            setShowForgotNotice(true);
-            setLoading(false);
-            return;
-          }
-        }
-        // CASE 2: Email signups disabled -> attempt direct sign-in
-        else if (errorLower.includes('signups are disabled') || errorLower.includes('signups not allowed')) {
-          console.info('Signups disabled, attempting direct sign in...');
-          let signedInUser: any = null;
-
-          for (const candEmail of candidateEmails) {
-            const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-              email: candEmail,
-              password: password,
-            });
-            if (!signInErr && signInData.user) {
-              signedInUser = signInData.user;
-              break;
-            }
-          }
-
-          if (signedInUser) {
-            authUser = signedInUser;
-          } else {
-            setMode('login');
-            setErrorMsg(
-              'Public signups are disabled in this Supabase project. If your account was added via the Supabase Console, sign in with your assigned credentials.'
-            );
-            setLoading(false);
-            return;
-          }
-        }
-        // CASE 3: Rate limit reached
-        else if (errorLower.includes('rate limit')) {
-          let signedInUser: any = null;
-          for (const candEmail of candidateEmails) {
-            const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-              email: candEmail,
-              password: password,
-            });
-            if (!signInErr && signInData.user) {
-              signedInUser = signInData.user;
-              break;
-            }
-          }
-
-          if (signedInUser) {
-            authUser = signedInUser;
-          } else {
-            throw new Error(
-              'Supabase email rate limit reached. In your Supabase Dashboard: go to Authentication -> Providers -> Email and disable "Confirm email" to log in immediately without limits.'
-            );
-          }
-        } else {
-          throw authError;
-        }
-      } else {
-        authUser = authData.user;
-      }
-
-      if (!authUser) {
-        throw new Error('Could not initialize user session.');
-      }
-
-      // If session was not auto-started (e.g. if email confirmation was on), try to sign in
-      const {
-        data: { session: currentSession },
-      } = await supabase.auth.getSession();
-
-      if (!currentSession) {
-        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-          email: primaryEmail,
-          password: password,
-        });
-        if (signInErr && signInErr.message.includes('Email not confirmed')) {
-          setInfoMsg(
-            'Account initialized! Note: Email confirmation is currently on in Supabase. Turn off "Confirm email" under Authentication -> Providers -> Email to log in instantly.'
-          );
-          setMode('login');
-          setLoading(false);
-          return;
-        }
-      }
-
-      // 2. Attempt to write to `profiles` table (resilient against RLS recursion)
-      try {
-        const { error: profileError } = await supabase.from('profiles').upsert([
-          {
-            id: authUser.id,
-            name: name.trim(),
-            role: 'boss',
-          },
-        ]);
-        if (profileError) {
-          console.warn('Database profiles table notice (RLS):', profileError.message);
-        }
-      } catch (profErr) {
-        console.warn('Profile write exception:', profErr);
-      }
-
-      // 3. Save profile locally & notify App
-      const bossProfile: Profile = {
-        id: authUser.id,
-        name: name.trim() || 'Managing Partner',
-        role: 'boss',
-        created_at: new Date().toISOString(),
-      };
-
-      saveLocalProfile(bossProfile);
-      onAuthSuccess(bossProfile);
-    } catch (err: any) {
-      console.error('Setup error:', err);
-      setErrorMsg(err.message || 'Failed to complete Boss setup.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Sign In Handler
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -391,7 +202,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
         throw lastAuthError || new Error('Login failed. Please verify your credentials.');
       }
 
-      // 2. Fetch profile from `profiles` table (resilient against RLS recursion)
+      // 2. Fetch profile from `profiles` table
       let userProfile: Profile | null = null;
       try {
         const { data: profileData, error: profileError } = await supabase
@@ -409,16 +220,11 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
         console.warn('Profiles query exception:', pErr);
       }
 
-      // 3. Fallback: if profile query failed or was blocked by RLS policies
+      // 3. Fallback: if profile query failed or was blocked
       if (!userProfile) {
         const cached = getLocalProfile(authUser.id);
-        const metaRole =
-          authUser.user_metadata?.role ||
-          (identifier.toLowerCase().includes('boss') || authUser.email?.toLowerCase().includes('boss')
-            ? 'boss'
-            : 'lawyer');
-        const metaName =
-          authUser.user_metadata?.name || identifier.split('@')[0] || 'Counsel';
+        const metaRole = authUser.user_metadata?.role || 'lawyer';
+        const metaName = authUser.user_metadata?.name || identifier.split('@')[0] || 'Counsel';
 
         userProfile = cached || {
           id: authUser.id,
@@ -428,7 +234,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
         };
       }
 
-      // CRITICAL: Ensure profile exists in database profiles table for FK constraints
+      // Ensure profile exists in database profiles table for FK constraints
       try {
         await supabase.from('profiles').upsert([
           {
@@ -453,20 +259,23 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
 
   const handleSendPasswordReset = async () => {
     if (!identifier.trim()) {
-      setErrorMsg('Please enter your username or email above first, then click Reset Password.');
+      setErrorMsg('Please enter your username or email above first, then click "Forgot password?".');
       return;
     }
+
     const candidateEmails = getCandidateEmails(identifier);
-    const targetEmail = candidateEmails[0];
+    const primaryEmail = candidateEmails[0];
 
     setLoading(true);
     setErrorMsg(null);
-    setInfoMsg(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(targetEmail);
+      const { error } = await supabase.auth.resetPasswordForEmail(primaryEmail, {
+        redirectTo: window.location.origin,
+      });
       if (error) throw error;
-      setInfoMsg(`Password reset email sent to ${targetEmail} (if valid).`);
+      setInfoMsg(`Password reset instructions sent to: ${primaryEmail}`);
     } catch (err: any) {
+      console.error('Password reset error:', err);
       setErrorMsg(
         err.message ||
           'Could not send reset email. Note: You can also reset the user password directly in the Supabase Dashboard under Authentication -> Users.'
@@ -490,7 +299,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
 
         {/* Card */}
         <div className="bg-[#141721]/90 backdrop-blur-md border border-[#2b3040] rounded-2xl shadow-2xl p-6 sm:p-8">
-          {/* Navigation Tabs */}
+          {/* Two Navigation Tabs: Sign In & Lawyer Sign Up */}
           <div className="flex rounded-lg bg-[#0a0c12] p-1 mb-6 border border-[#262c3e] gap-1">
             <button
               type="button"
@@ -512,13 +321,13 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
             <button
               type="button"
               onClick={() => {
-                setMode('lawyer');
+                setMode('signup');
                 setErrorMsg(null);
                 setInfoMsg(null);
                 setShowForgotNotice(false);
               }}
               className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'lawyer'
+                mode === 'signup'
                   ? 'bg-[#1e2436] text-[#e5c378] shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
@@ -526,176 +335,24 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
               <UserCheck className="w-3.5 h-3.5" />
               Lawyer Sign Up
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('setup');
-                setErrorMsg(null);
-                setInfoMsg(null);
-                setShowForgotNotice(false);
-              }}
-              className={`flex-1 py-2 text-xs font-semibold rounded-md transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                mode === 'setup'
-                  ? 'bg-[#1e2436] text-[#e5c378] shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Boss Setup
-            </button>
           </div>
 
-          {mode === 'setup' ? (
-            <div>
-              <div className="mb-6 pb-4 border-b border-[#252a38]">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#c5a059]/15 text-[#e5c378] border border-[#c5a059]/30 mb-2">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  Managing Partner Setup
-                </div>
-                <h2
-                  className="text-xl font-bold tracking-wide text-slate-100"
-                  style={{ fontFamily: "'Cinzel', Georgia, serif" }}
-                >
-                  Initialize Firm Boss Account
-                </h2>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Register or connect the Managing Partner account to administer cases and the firm docket.
-                </p>
-              </div>
-
-              {errorMsg && (
-                <div className="mb-5 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-200 text-xs flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                  <div className="leading-relaxed space-y-1">
-                    <p>{errorMsg}</p>
-                    {showForgotNotice && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMode('login');
-                          setErrorMsg(null);
-                        }}
-                        className="text-[#e5c378] font-medium underline hover:text-[#f3d38c] text-xs inline-block mt-1 cursor-pointer"
-                      >
-                        Switch to Sign In tab →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {infoMsg && (
-                <div className="mb-5 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-200 text-xs flex items-start gap-2">
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                  <span>{infoMsg}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleBossSetup} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Managing Partner Full Name
-                  </label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Richard Bond, Esq."
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Username or Email
-                  </label>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. boss or boss@bondpartners.com"
-                      value={identifier}
-                      onChange={(e) => setIdentifier(e.target.value)}
-                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    You can use a simple username (e.g. <span className="text-slate-300 font-mono">boss</span>) or full email.
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Master Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-10 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-1 cursor-pointer"
-                      title={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Minimum 6 characters</p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full mt-2 py-3 px-4 rounded-lg font-semibold text-sm tracking-wide bg-gradient-to-r from-[#d4af37] via-[#c5a059] to-[#a38035] hover:brightness-110 active:brightness-95 text-[#0d0f15] shadow-lg shadow-[#c5a059]/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Connecting Account...
-                    </>
-                  ) : (
-                    'Complete Managing Partner Setup'
-                  )}
-                </button>
-              </form>
-
-              <div className="mt-6 pt-4 border-t border-[#252a38] text-center">
-                <button
-                  type="button"
-                  onClick={() => setMode('login')}
-                  className="text-xs text-slate-400 hover:text-[#e5c378] transition-colors cursor-pointer"
-                >
-                  Already have an account? <span className="underline">Sign In here</span>
-                </button>
-              </div>
-            </div>
-          ) : mode === 'lawyer' ? (
+          {mode === 'signup' ? (
+            /* LAWYER SIGN UP */
             <div>
               <div className="mb-6 pb-4 border-b border-[#252a38]">
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#c5a059]/15 text-[#e5c378] border border-[#c5a059]/30 mb-2">
                   <UserCheck className="w-3.5 h-3.5" />
-                  Associate & Partner Counsel Registration
+                  Attorney & Counsel Registration
                 </div>
                 <h2
                   className="text-xl font-bold tracking-wide text-slate-100"
                   style={{ fontFamily: "'Cinzel', Georgia, serif" }}
                 >
-                  Join Firm Roster
+                  Create Lawyer Account
                 </h2>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Register your lawyer credentials. You will have full privileges to file cases, manage dockets, and upload evidentiary files.
+                  Register your lawyer account to file new case dockets, manage clients, and upload legal evidentiary files.
                 </p>
               </div>
 
@@ -813,21 +470,22 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                   onClick={() => setMode('login')}
                   className="text-xs text-slate-400 hover:text-[#e5c378] transition-colors cursor-pointer"
                 >
-                  Already have an account? <span className="underline">Sign In here</span>
+                  Already have an account? <span className="underline font-medium text-slate-200">Sign in here</span>
                 </button>
               </div>
             </div>
           ) : (
+            /* SIGN IN */
             <div>
               <div className="mb-6 pb-4 border-b border-[#252a38]">
                 <h2
                   className="text-xl font-bold tracking-wide text-slate-100"
                   style={{ fontFamily: "'Cinzel', Georgia, serif" }}
                 >
-                  Attorney & Staff Login
+                  Attorney Sign In
                 </h2>
                 <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                  Sign in with your Bond Partners credentials to access synchronized firm cases.
+                  Sign in with your lawyer credentials to access synchronized firm cases and dockets.
                 </p>
               </div>
 
@@ -837,16 +495,16 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                   <div className="leading-relaxed space-y-1.5 flex-1">
                     <p>{errorMsg}</p>
                     {showForgotNotice && (
-                      <div className="pt-1 flex flex-wrap items-center gap-3">
+                      <div className="pt-1">
                         <button
                           type="button"
                           onClick={() => {
-                            setMode('setup');
+                            setMode('signup');
                             setErrorMsg(null);
                           }}
                           className="text-[#e5c378] underline hover:text-[#f3d38c] font-medium cursor-pointer"
                         >
-                          Need to reset/create Boss account? Click Boss Setup
+                          Need a new lawyer account? Register here →
                         </button>
                       </div>
                     )}
@@ -871,14 +529,14 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. boss, rachel, or counsel@bondpartners.com"
+                      placeholder="e.g. sarah, rachel, or lawyer@bondpartners.com"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
                     />
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Enter your assigned username (e.g. <span className="text-slate-300 font-mono">boss</span>) or full email.
+                    Enter your username (e.g. <span className="text-slate-300 font-mono">sarah</span>) or registered email.
                   </p>
                 </div>
 
@@ -936,25 +594,24 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                 <div className="p-3 rounded-lg bg-[#0e1017] border border-[#232838] text-[11px] text-slate-400 leading-relaxed">
                   <div className="flex items-center gap-1.5 text-[#e5c378] font-semibold mb-1">
                     <HelpCircle className="w-3.5 h-3.5" />
-                    <span>Login Credentials Tips</span>
+                    <span>Attorney Sign-in Tips</span>
                   </div>
                   <ul className="list-disc list-inside space-y-1 text-slate-400">
-                    <li>Use the 👁 eye icon in the password field to check your password spelling.</li>
-                    <li>If you signed up with a plain username (e.g. <span className="font-mono text-slate-200">boss</span>), enter just the username.</li>
-                    <li>If you created the account via Supabase Dashboard with a real email, enter your full email address.</li>
+                    <li>Use the 👁 eye icon in the password field to verify your password.</li>
+                    <li>If you registered with a username (e.g. <span className="font-mono text-slate-200">sarah</span>), you can enter just that username.</li>
                   </ul>
                 </div>
 
-                <div className="text-center">
+                <div className="text-center pt-1">
                   <button
                     type="button"
                     onClick={() => {
-                      setMode('setup');
+                      setMode('signup');
                       setErrorMsg(null);
                     }}
-                    className="text-xs text-[#e5c378] hover:underline cursor-pointer"
+                    className="text-xs text-slate-400 hover:text-[#e5c378] transition-colors cursor-pointer"
                   >
-                    Need to initialize or reconnect Managing Partner? Click Boss Setup
+                    Don't have an attorney account? <span className="underline font-medium text-[#e5c378]">Sign up here</span>
                   </button>
                 </div>
               </div>
