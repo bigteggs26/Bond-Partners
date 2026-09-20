@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase';
 import { Profile, CaseItem } from './types';
 import { Navbar } from './components/Navbar';
 import { AuthScreens } from './components/AuthScreens';
+import { StaffGateScreen } from './components/StaffGateScreen';
 import { DashboardView } from './components/DashboardView';
 import { NewCaseModal } from './components/NewCaseModal';
 import { CaseDetailModal } from './components/CaseDetailModal';
@@ -25,6 +26,13 @@ import {
 
 export default function App() {
   // App initialization state
+  const [isStaffGateVerified, setIsStaffGateVerified] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('staffGateVerified') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => getActiveLocalUser());
   const [profiles, setProfiles] = useState<Profile[]>(() => getLocalProfilesList());
   const [cases, setCases] = useState<CaseItem[]>(() => getCachedCases());
@@ -147,6 +155,14 @@ export default function App() {
         const session = sessionRes.data.session;
 
         if (session?.user && mounted) {
+          // Exclude shared staff gate authentication from lawyer profile resolution
+          if (session.user.email?.toLowerCase() === 'staff@bondpartners.com') {
+            await supabase.auth.signOut();
+            setCurrentUser(null);
+            setActiveLocalUser(null);
+            return;
+          }
+
           let matched = loadedProfiles.find((p) => p.id === session.user.id);
           if (!matched) {
             matched = getLocalProfile(session.user.id) || undefined;
@@ -220,6 +236,11 @@ export default function App() {
         setCurrentUser(null);
         setActiveLocalUser(null);
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // Exclude shared staff gate authentication from lawyer profile resolution
+        if (session.user.email?.toLowerCase() === 'staff@bondpartners.com') {
+          return;
+        }
+
         let matched = getLocalProfile(session.user.id);
         if (!matched) {
           try {
@@ -400,7 +421,12 @@ export default function App() {
     });
   };
 
-  // 6. Loading screen during first-time initialization (only if no cached session)
+  // 6. Site-wide Staff Gate: Before showing Setup/Login, require staff access verification
+  if (!isStaffGateVerified) {
+    return <StaffGateScreen onVerified={() => setIsStaffGateVerified(true)} />;
+  }
+
+  // 7. Loading screen during first-time initialization (only if no cached session)
   if (initializing && !currentUser) {
     return (
       <div className="min-h-screen bg-[#0d0f16] flex flex-col items-center justify-center gap-4 text-slate-300">
