@@ -394,7 +394,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Sarah Jenkins, Esq."
+                      placeholder="e.g. Attorney Full Name"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
@@ -411,14 +411,14 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. sarah or sarah@bondpartners.com"
+                      placeholder="Username or email address"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
                     />
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    You can use a firm username (e.g. <span className="text-slate-300 font-mono">sarah</span>) or your email address.
+                    You can use a firm username or your email address.
                   </p>
                 </div>
 
@@ -529,14 +529,14 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                     <input
                       type="text"
                       required
-                      placeholder="e.g. sarah, rachel, or lawyer@bondpartners.com"
+                      placeholder="Username or registered email"
                       value={identifier}
                       onChange={(e) => setIdentifier(e.target.value)}
                       className="w-full bg-[#0d0f15] border border-[#2a2f3f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:border-[#c5a059] focus:ring-1 focus:ring-[#c5a059] transition-colors"
                     />
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Enter your username (e.g. <span className="text-slate-300 font-mono">sarah</span>) or registered email.
+                    Enter your registered username or email address.
                   </p>
                 </div>
 
@@ -598,7 +598,7 @@ export const AuthScreens: React.FC<AuthScreensProps> = ({
                   </div>
                   <ul className="list-disc list-inside space-y-1 text-slate-400">
                     <li>Use the 👁 eye icon in the password field to verify your password.</li>
-                    <li>If you registered with a username (e.g. <span className="font-mono text-slate-200">sarah</span>), you can enter just that username.</li>
+                    <li>If you registered with a username, you can enter just that username.</li>
                   </ul>
                 </div>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Profile } from '../types';
 import { supabase } from '../lib/supabase';
+import { isDemoProfile } from '../lib/profileCache';
 import {
   X,
   Users,
@@ -44,8 +45,8 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
     setRefreshing(false);
   };
 
-  const lawyers = profiles.filter((p) => p.role === 'lawyer');
-  const bosses = profiles.filter((p) => p.role === 'boss');
+  const lawyers = profiles.filter((p) => p.role === 'lawyer' && !isDemoProfile(p));
+  const bosses = profiles.filter((p) => p.role === 'boss' && !isDemoProfile(p));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
@@ -104,7 +105,7 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
                 <span className="text-[#e5c378] font-mono">profiles</span> table. Insert a new row with:
                 <ul className="list-disc list-inside pl-4 mt-1 text-slate-400 font-mono text-[11px] space-y-0.5">
                   <li><code>id</code>: copy the User UID generated in Step 1</li>
-                  <li><code>name</code>: Counsel's full legal name (e.g. "Evelyn Reed, Esq.")</li>
+                  <li><code>name</code>: Counsel's full legal name</li>
                   <li><code>role</code>: <code>lawyer</code></li>
                 </ul>
               </li>

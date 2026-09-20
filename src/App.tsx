@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from './lib/supabase';
 import { Profile, CaseItem } from './types';
 import { Navbar } from './components/Navbar';
@@ -14,6 +14,8 @@ import {
   getLocalProfile,
   getLocalProfilesList,
   saveLocalProfilesList,
+  isDemoProfile,
+  purgeDemoProfilesFromStorage,
 } from './lib/profileCache';
 
 export default function App() {
@@ -32,6 +34,12 @@ export default function App() {
   const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
 
+  // Clean, non-demo profiles list
+  const realProfiles = useMemo(
+    () => profiles.filter((p) => !isDemoProfile(p)),
+    [profiles]
+  );
+
   // 1. Load Profiles & verify if a Boss account exists (resilient to RLS errors)
   const checkBossAndLoadProfiles = useCallback(async () => {
     try {
@@ -39,7 +47,7 @@ export default function App() {
       if (error) {
         console.warn('Notice loading profiles from database:', error.message);
         // Fall back to local profiles cache
-        const cached = getLocalProfilesList();
+        const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p));
         if (cached.length > 0) {
           setProfiles(cached);
           const bossExists = cached.some((p) => p.role === 'boss');
@@ -48,7 +56,7 @@ export default function App() {
         }
         return [];
       }
-      const loadedProfiles = (data || []) as Profile[];
+      const loadedProfiles = (data || []).filter((p: any) => !isDemoProfile(p)) as Profile[];
       setProfiles(loadedProfiles);
       saveLocalProfilesList(loadedProfiles);
 
@@ -57,7 +65,7 @@ export default function App() {
       return loadedProfiles;
     } catch (err) {
       console.warn('Failed to verify profiles:', err);
-      const cached = getLocalProfilesList();
+      const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p));
       if (cached.length > 0) {
         setProfiles(cached);
         setHasBossAccount(cached.some((p) => p.role === 'boss'));
@@ -406,7 +414,7 @@ export default function App() {
         <DashboardView
           cases={cases}
           currentUser={currentUser}
-          lawyers={profiles}
+          lawyers={realProfiles}
           onSelectCase={(id) => setSelectedCaseId(id)}
           onOpenNewCase={() => setIsNewCaseOpen(true)}
         />
@@ -419,7 +427,7 @@ export default function App() {
           isOpen={isNewCaseOpen}
           onClose={() => setIsNewCaseOpen(false)}
           onSuccess={handleCaseCreated}
-          lawyers={profiles}
+          lawyers={realProfiles}
           currentUser={currentUser}
         />
       )}
@@ -429,7 +437,7 @@ export default function App() {
         <ManageTeamModal
           isOpen={isManageTeamOpen}
           onClose={() => setIsManageTeamOpen(false)}
-          profiles={profiles}
+          profiles={realProfiles}
           onRefreshProfiles={async () => {
             const refreshed = await checkBossAndLoadProfiles();
             await loadCases(refreshed);
@@ -442,7 +450,7 @@ export default function App() {
         <CaseDetailModal
           caseId={selectedCaseId}
           currentUser={currentUser}
-          lawyers={profiles}
+          lawyers={realProfiles}
           onClose={() => setSelectedCaseId(null)}
           onCaseDeleted={handleCaseDeleted}
           onCaseUpdated={handleCaseUpdated}
