@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import { Profile, CaseItem } from './types';
 import { Navbar } from './components/Navbar';
@@ -14,6 +14,10 @@ import {
   getLocalProfile,
   getLocalProfilesList,
   saveLocalProfilesList,
+  getActiveLocalUser,
+  setActiveLocalUser,
+  getCachedCases,
+  saveCachedCases,
   isDemoProfile,
   isDemoCase,
   purgeDemoProfilesFromStorage,
@@ -21,19 +25,32 @@ import {
 
 export default function App() {
   // App initialization state
-  const [initializing, setInitializing] = useState(true);
-  const [hasBossAccount, setHasBossAccount] = useState<boolean | null>(null);
-  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
+  const [currentUser, setCurrentUser] = useState<Profile | null>(() => getActiveLocalUser());
+  const [profiles, setProfiles] = useState<Profile[]>(() => getLocalProfilesList());
+  const [cases, setCases] = useState<CaseItem[]>(() => getCachedCases());
+  const [hasBossAccount, setHasBossAccount] = useState<boolean | null>(() => {
+    const list = getLocalProfilesList();
+    return list.length > 0 ? list.some((p) => p.role === 'boss') : null;
+  });
 
-  // Data states
-  const [cases, setCases] = useState<CaseItem[]>([]);
-  const [profiles, setProfiles] = useState<Profile[]>([]);
+  // If we already have a cached user, show the interface immediately without blocking
+  const [initializing, setInitializing] = useState(() => !getActiveLocalUser());
   const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   // Modals
   const [isNewCaseOpen, setIsNewCaseOpen] = useState(false);
   const [isManageTeamOpen, setIsManageTeamOpen] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
+
+  // Stable references to prevent cascading effect recalculations
+  const currentUserRef = useRef<Profile | null>(currentUser);
+  currentUserRef.current = currentUser;
+
+  const profilesRef = useRef<Profile[]>(profiles);
+  profilesRef.current = profiles;
+
+  const selectedCaseIdRef = useRef<string | null>(selectedCaseId);
+  selectedCaseIdRef.current = selectedCaseId;
 
   // Clean, non-demo profiles list
   const realProfiles = useMemo(
@@ -47,8 +64,7 @@ export default function App() {
       const { data, error } = await supabase.from('profiles').select('*');
       if (error) {
         console.warn('Notice loading profiles from database:', error.message);
-        // Fall back to local profiles cache
-        const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUser?.id));
+        const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUserRef.current?.id));
         if (cached.length > 0) {
           setProfiles(cached);
           const bossExists = cached.some((p) => p.role === 'boss');
@@ -57,7 +73,7 @@ export default function App() {
         }
         return [];
       }
-      const loadedProfiles = (data || []).filter((p: any) => !isDemoProfile(p, currentUser?.id)) as Profile[];
+      const loadedProfiles = (data || []).filter((p: any) => !isDemoProfile(p, currentUserRef.current?.id)) as Profile[];
       setProfiles(loadedProfiles);
       saveLocalProfilesList(loadedProfiles);
 
@@ -66,7 +82,7 @@ export default function App() {
       return loadedProfiles;
     } catch (err) {
       console.warn('Failed to verify profiles:', err);
-      const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUser?.id));
+      const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUserRef.current?.id));
       if (cached.length > 0) {
         setProfiles(cached);
         setHasBossAccount(cached.some((p) => p.role === 'boss'));
@@ -74,7 +90,7 @@ export default function App() {
       }
       return [];
     }
-  }, [currentUser]);
+  }, []);
 
   // 2. Load Cases
   const loadCases = useCallback(async (currentProfilesList?: Profile[]) => {
@@ -89,8 +105,8 @@ export default function App() {
         return;
       }
 
-      const activeProfiles = (currentProfilesList || profiles).filter(
-        (p) => !isDemoProfile(p, currentUser?.id)
+      const activeProfiles = (currentProfilesList || profilesRef.current).filter(
+        (p) => !isDemoProfile(p, currentUserRef.current?.id)
       );
       const casesWithLawyers: CaseItem[] = (data || [])
         .filter((c: any) => !isDemoCase(c))
@@ -103,33 +119,40 @@ export default function App() {
         });
 
       setCases(casesWithLawyers);
+      saveCachedCases(casesWithLawyers);
     } catch (err) {
       console.error('Failed to load cases:', err);
     }
-  }, [profiles, currentUser]);
+  }, []);
 
-  // 3. Initialize Auth Session & Profiles Check
+  // 3. Initialize Auth Session & Profiles Check with Fast Timeout Protection
   useEffect(() => {
     let mounted = true;
 
+    // Safety timeout: Maximum 1000ms wait for remote network. Never hang the app.
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) {
+        setInitializing(false);
+      }
+    }, 1000);
+
     async function init() {
       try {
-        const loadedProfiles = await checkBossAndLoadProfiles();
+        // Run session check and profiles load concurrently
+        const [sessionRes, loadedProfiles] = await Promise.all([
+          supabase.auth.getSession(),
+          checkBossAndLoadProfiles(),
+        ]);
 
-        // Check if there is an active Supabase session
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const session = sessionRes.data.session;
 
         if (session?.user && mounted) {
-          // Find matching profile in loaded list or local cache
           let matched = loadedProfiles.find((p) => p.id === session.user.id);
           if (!matched) {
             matched = getLocalProfile(session.user.id) || undefined;
           }
 
           if (!matched) {
-            // Check direct profile row
             try {
               const { data: profData } = await supabase
                 .from('profiles')
@@ -145,47 +168,42 @@ export default function App() {
             }
           }
 
-          if (matched) {
-            setCurrentUser(matched);
-            saveLocalProfile(matched);
-          } else {
-            // Create fallback if user exists in auth
-            const fallbackRole =
-              session.user.user_metadata?.role ||
-              (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
-            const fallbackName =
-              session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
-            const fallbackProf: Profile = {
-              id: session.user.id,
-              name: fallbackName,
-              role: fallbackRole,
-            };
-            saveLocalProfile(fallbackProf);
-            setCurrentUser(fallbackProf);
-          }
-
-          // Always ensure the profile row is present in the Postgres profiles table
-          const activeProf = matched || {
+          const fallbackRole =
+            session.user.user_metadata?.role ||
+            (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
+          const fallbackName =
+            session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
+          const activeProf: Profile = matched || {
             id: session.user.id,
-            name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel',
-            role: session.user.user_metadata?.role || (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer'),
+            name: fallbackName,
+            role: fallbackRole,
           };
-          try {
-            await supabase.from('profiles').upsert([
+
+          setCurrentUser(activeProf);
+          setActiveLocalUser(activeProf);
+          saveLocalProfile(activeProf);
+
+          // Non-blocking background sync
+          Promise.resolve(
+            supabase.from('profiles').upsert([
               {
                 id: activeProf.id,
                 name: activeProf.name,
                 role: activeProf.role,
               },
-            ]);
-          } catch (syncErr) {
-            console.warn('Profile sync notice:', syncErr);
-          }
+            ])
+          ).catch((syncErr: unknown) => console.warn('Profile sync notice:', syncErr));
+
+          loadCases(loadedProfiles);
+        } else if (!session?.user && mounted) {
+          setCurrentUser(null);
+          setActiveLocalUser(null);
         }
       } catch (e) {
         console.error('Init error:', e);
       } finally {
         if (mounted) {
+          clearTimeout(safetyTimeout);
           setInitializing(false);
         }
       }
@@ -197,8 +215,10 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
       if (event === 'SIGNED_OUT' || !session) {
         setCurrentUser(null);
+        setActiveLocalUser(null);
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         let matched = getLocalProfile(session.user.id);
         if (!matched) {
@@ -217,60 +237,50 @@ export default function App() {
           }
         }
 
-        if (matched) {
-          setCurrentUser(matched);
-          saveLocalProfile(matched);
-        } else {
-          const fallbackRole =
-            session.user.user_metadata?.role ||
-            (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
-          const fallbackName =
-            session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
-          const prof: Profile = {
-            id: session.user.id,
-            name: fallbackName,
-            role: fallbackRole,
-          };
-          saveLocalProfile(prof);
-          setCurrentUser(prof);
-        }
-
-        // Always sync profile row to Postgres profiles table
-        const activeProf = matched || {
+        const fallbackRole =
+          session.user.user_metadata?.role ||
+          (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer');
+        const fallbackName =
+          session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel';
+        const activeProf: Profile = matched || {
           id: session.user.id,
-          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Counsel',
-          role: session.user.user_metadata?.role || (session.user.email?.toLowerCase().includes('boss') ? 'boss' : 'lawyer'),
+          name: fallbackName,
+          role: fallbackRole,
         };
-        try {
-          await supabase.from('profiles').upsert([
+
+        setCurrentUser(activeProf);
+        setActiveLocalUser(activeProf);
+        saveLocalProfile(activeProf);
+
+        Promise.resolve(
+          supabase.from('profiles').upsert([
             {
               id: activeProf.id,
               name: activeProf.name,
               role: activeProf.role,
             },
-          ]);
-        } catch (syncErr) {
-          console.warn('Auth change profile sync notice:', syncErr);
-        }
+          ])
+        ).catch((syncErr: unknown) => console.warn('Auth change profile sync notice:', syncErr));
       }
     });
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
-  }, [checkBossAndLoadProfiles]);
+  }, [checkBossAndLoadProfiles, loadCases]);
 
-  // 4. Load cases whenever user logs in or profiles change
+  // 4. Load cases whenever user logs in
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser?.id) {
       loadCases();
     }
-  }, [currentUser, loadCases]);
+  }, [currentUser?.id, loadCases]);
 
   // 5. Supabase Realtime Subscriptions for live cross-device synchronization
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser?.id) return;
 
     // Cases realtime channel
     const casesChannel = supabase
@@ -286,28 +296,35 @@ export default function App() {
           if (payload.eventType === 'INSERT') {
             const newRow = payload.new as any;
             setCases((prev) => {
-              // Prevent duplicates
               if (prev.some((c) => c.id === newRow.id)) return prev;
-              const assigned = profiles.find((p) => p.id === newRow.assigned_lawyer_id) || null;
+              const assigned = profilesRef.current.find((p) => p.id === newRow.assigned_lawyer_id) || null;
               const newItem: CaseItem = { ...newRow, assigned_lawyer: assigned };
-              return [newItem, ...prev];
+              const updated = [newItem, ...prev];
+              saveCachedCases(updated);
+              return updated;
             });
           } else if (payload.eventType === 'UPDATE') {
             const updatedRow = payload.new as any;
-            setCases((prev) =>
-              prev.map((c) => {
+            setCases((prev) => {
+              const updated = prev.map((c) => {
                 if (c.id === updatedRow.id) {
                   const assigned =
-                    profiles.find((p) => p.id === updatedRow.assigned_lawyer_id) || null;
+                    profilesRef.current.find((p) => p.id === updatedRow.assigned_lawyer_id) || null;
                   return { ...c, ...updatedRow, assigned_lawyer: assigned };
                 }
                 return c;
-              })
-            );
+              });
+              saveCachedCases(updated);
+              return updated;
+            });
           } else if (payload.eventType === 'DELETE') {
             const deletedId = (payload.old as any).id;
-            setCases((prev) => prev.filter((c) => c.id !== deletedId));
-            if (selectedCaseId === deletedId) {
+            setCases((prev) => {
+              const updated = prev.filter((c) => c.id !== deletedId);
+              saveCachedCases(updated);
+              return updated;
+            });
+            if (selectedCaseIdRef.current === deletedId) {
               setSelectedCaseId(null);
             }
           }
@@ -338,21 +355,25 @@ export default function App() {
       supabase.removeChannel(casesChannel);
       supabase.removeChannel(profilesChannel);
     };
-  }, [currentUser, profiles, selectedCaseId, checkBossAndLoadProfiles, loadCases]);
+  }, [currentUser?.id, checkBossAndLoadProfiles, loadCases]);
 
   // Handlers
   const handleAuthSuccess = async (profile: Profile) => {
     setCurrentUser(profile);
-    const freshProfiles = await checkBossAndLoadProfiles();
-    await loadCases(freshProfiles);
+    setActiveLocalUser(profile);
+    setInitializing(false);
+    checkBossAndLoadProfiles().then((fresh) => {
+      loadCases(fresh);
+    });
   };
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    setActiveLocalUser(null);
     setCurrentUser(null);
     setSelectedCaseId(null);
     setIsNewCaseOpen(false);
     setIsManageTeamOpen(false);
+    await supabase.auth.signOut();
   };
 
   const handleCaseCreated = (newCaseId: string) => {
@@ -361,20 +382,26 @@ export default function App() {
   };
 
   const handleCaseDeleted = (deletedId: string) => {
-    setCases((prev) => prev.filter((c) => c.id !== deletedId));
+    setCases((prev) => {
+      const updated = prev.filter((c) => c.id !== deletedId);
+      saveCachedCases(updated);
+      return updated;
+    });
     if (selectedCaseId === deletedId) {
       setSelectedCaseId(null);
     }
   };
 
   const handleCaseUpdated = (updatedCase: CaseItem) => {
-    setCases((prev) =>
-      prev.map((c) => (c.id === updatedCase.id ? { ...c, ...updatedCase } : c))
-    );
+    setCases((prev) => {
+      const updated = prev.map((c) => (c.id === updatedCase.id ? { ...c, ...updatedCase } : c));
+      saveCachedCases(updated);
+      return updated;
+    });
   };
 
-  // 6. Loading screen during first-time initialization
-  if (initializing) {
+  // 6. Loading screen during first-time initialization (only if no cached session)
+  if (initializing && !currentUser) {
     return (
       <div className="min-h-screen bg-[#0d0f16] flex flex-col items-center justify-center gap-4 text-slate-300">
         <BrandLogo variant="icon" />

@@ -226,3 +226,51 @@ export function saveLocalProfilesList(profiles: Profile[]): void {
     console.warn('Could not write profiles to localStorage:', err);
   }
 }
+
+const ACTIVE_USER_ID_KEY = 'bp_active_user_id';
+const CASES_CACHE_KEY = 'bp_cached_cases';
+
+export function getActiveLocalUser(): Profile | null {
+  try {
+    const id = localStorage.getItem(ACTIVE_USER_ID_KEY);
+    if (!id) return null;
+    return getLocalProfile(id);
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveLocalUser(profile: Profile | null): void {
+  try {
+    if (!profile) {
+      localStorage.removeItem(ACTIVE_USER_ID_KEY);
+    } else {
+      localStorage.setItem(ACTIVE_USER_ID_KEY, profile.id);
+      saveLocalProfile(profile);
+    }
+  } catch (err) {
+    console.warn('Could not save active user:', err);
+  }
+}
+
+export function getCachedCases(): CaseItem[] {
+  try {
+    const raw = localStorage.getItem(CASES_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as CaseItem[];
+      return parsed.filter((c) => !isDemoCase(c));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveCachedCases(cases: CaseItem[]): void {
+  try {
+    const clean = cases.filter((c) => !isDemoCase(c));
+    localStorage.setItem(CASES_CACHE_KEY, JSON.stringify(clean));
+  } catch (err) {
+    console.warn('Could not write cached cases:', err);
+  }
+}
