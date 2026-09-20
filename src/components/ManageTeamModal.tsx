@@ -1,23 +1,29 @@
 import React, { useState } from 'react';
 import { Profile } from '../types';
 import { supabase } from '../lib/supabase';
-import { isDemoProfile } from '../lib/profileCache';
+import {
+  isDemoProfile,
+  dismissProfile,
+  purgeDemoProfilesFromStorage,
+} from '../lib/profileCache';
 import {
   X,
   Users,
   Shield,
-  UserCheck,
   ExternalLink,
   Copy,
   Check,
   Info,
   RefreshCw,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface ManageTeamModalProps {
   isOpen: boolean;
   onClose: () => void;
   profiles: Profile[];
+  currentUser?: Profile | null;
   onRefreshProfiles: () => Promise<void>;
 }
 
@@ -25,10 +31,13 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
   isOpen,
   onClose,
   profiles,
+  currentUser,
   onRefreshProfiles,
 }) => {
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -45,8 +54,69 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
     setRefreshing(false);
   };
 
-  const lawyers = profiles.filter((p) => p.role === 'lawyer' && !isDemoProfile(p));
-  const bosses = profiles.filter((p) => p.role === 'boss' && !isDemoProfile(p));
+  const handleRemoveCounsel = async (profileToRemove: Profile) => {
+    const confirmRemove = window.confirm(
+      `Are you sure you want to remove "${profileToRemove.name}" from the firm roster?\n\nThis attorney will no longer appear in the counsel directory, case assignments, or firm dockets.`
+    );
+    if (!confirmRemove) return;
+
+    setDeletingId(profileToRemove.id);
+    try {
+      // 1. Blacklist / dismiss locally and in storage
+      dismissProfile(profileToRemove.id);
+      dismissProfile(profileToRemove.name);
+
+      // 2. Attempt deletion in Supabase profiles table
+      try {
+        await supabase.from('profiles').delete().eq('id', profileToRemove.id);
+      } catch (dbErr) {
+        console.warn('DB delete notice (dismissed locally):', dbErr);
+      }
+
+      // 3. Unassign from cases in Supabase
+      try {
+        await supabase
+          .from('cases')
+          .update({ assigned_lawyer_id: null })
+          .eq('assigned_lawyer_id', profileToRemove.id);
+      } catch (caseErr) {
+        console.warn('Case unassign notice:', caseErr);
+      }
+
+      setStatusMessage(`"${profileToRemove.name}" has been removed from the firm roster.`);
+      await onRefreshProfiles();
+    } catch (err: any) {
+      console.error('Error removing profile:', err);
+      setStatusMessage(`Could not remove counsel: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const handlePurgeAllDemo = async () => {
+    setRefreshing(true);
+    try {
+      purgeDemoProfilesFromStorage();
+      // Dismiss any existing lawyers matching demo criteria
+      profiles.forEach((p) => {
+        if (isDemoProfile(p, currentUser?.id)) {
+          dismissProfile(p.id);
+          dismissProfile(p.name);
+        }
+      });
+      await onRefreshProfiles();
+      setStatusMessage('All demo and test accounts have been purged from the firm.');
+    } catch (err: any) {
+      setStatusMessage(`Purge notice: ${err.message}`);
+    } finally {
+      setRefreshing(false);
+      setTimeout(() => setStatusMessage(null), 4000);
+    }
+  };
+
+  const lawyers = profiles.filter((p) => p.role === 'lawyer' && !isDemoProfile(p, currentUser?.id));
+  const bosses = profiles.filter((p) => p.role === 'boss' && !isDemoProfile(p, currentUser?.id));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
@@ -152,21 +222,47 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
             </div>
           </div>
 
+          {/* Status Message Notification */}
+          {statusMessage && (
+            <div className="p-3 rounded-lg bg-[#c5a059]/15 border border-[#c5a059]/40 text-xs text-[#faebd0] flex items-center justify-between">
+              <span>{statusMessage}</span>
+              <button
+                type="button"
+                onClick={() => setStatusMessage(null)}
+                className="text-slate-400 hover:text-slate-200 text-xs ml-2"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Current Roster */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
                 Current Registered Profiles ({profiles.length})
               </h3>
-              <button
-                type="button"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="inline-flex items-center gap-1.5 text-xs text-[#e5c378] hover:underline cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
-                <span>Sync Directory</span>
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handlePurgeAllDemo}
+                  disabled={refreshing}
+                  className="inline-flex items-center gap-1 text-xs text-rose-400 hover:text-rose-300 hover:underline cursor-pointer disabled:opacity-50"
+                  title="Purge all test and demo accounts from firm"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Purge Demo Accounts</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="inline-flex items-center gap-1.5 text-xs text-[#e5c378] hover:underline cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                  <span>Sync Directory</span>
+                </button>
+              </div>
             </div>
 
             <div className="border border-[#222738] rounded-xl overflow-hidden bg-[#0c0e15] divide-y divide-[#1e2333]">
@@ -195,11 +291,11 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
               {lawyers.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500">
                   <Users className="w-6 h-6 mx-auto mb-1 text-slate-600" />
-                  No associate lawyers registered yet in the profiles table. Follow the steps above to add counsel.
+                  No associate lawyers registered yet in the profiles directory. Follow the steps above to add counsel.
                 </div>
               ) : (
                 lawyers.map((lawyer) => (
-                  <div key={lawyer.id} className="p-3.5 flex items-center justify-between">
+                  <div key={lawyer.id} className="p-3.5 flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center font-bold text-xs">
                         {lawyer.name.slice(0, 2).toUpperCase()}
@@ -214,7 +310,21 @@ export const ManageTeamModal: React.FC<ManageTeamModalProps> = ({
                         <span className="text-[10px] text-slate-500 font-mono">UID: {lawyer.id}</span>
                       </div>
                     </div>
-                    <span className="text-[11px] text-slate-400">Firm Counsel</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-slate-400 hidden sm:inline">Firm Counsel</span>
+                      {currentUser?.role === 'boss' && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCounsel(lawyer)}
+                          disabled={deletingId === lawyer.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium text-rose-400 hover:text-rose-200 hover:bg-rose-500/20 border border-rose-500/30 transition-colors cursor-pointer disabled:opacity-50"
+                          title="Remove counsel from firm directory"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{deletingId === lawyer.id ? 'Removing...' : 'Remove'}</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
               )}

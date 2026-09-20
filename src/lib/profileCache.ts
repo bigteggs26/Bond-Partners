@@ -1,11 +1,28 @@
-import { Profile } from '../types';
+import { Profile, CaseItem } from '../types';
 
 const PROFILE_CACHE_KEY_PREFIX = 'bp_profile_';
 const ALL_PROFILES_CACHE_KEY = 'bp_all_profiles';
+const DISMISSED_PROFILES_KEY = 'bp_dismissed_profiles';
 
-const KNOWN_DEMO_NAMES = [
+export const KNOWN_DEMO_IDS = new Set([
+  '6430a1b8-f3c8-40fe-abae-7fe652e42a68', // Test Lawyer
+  '7037c9d3-1ccd-454c-80e8-c2dd81d5cb9a', // Test Counsel
+  'eea2da9c-352c-4472-b670-7ed67be37ef6', // Attorney Jenkins
+  '7f5c20b7-b764-4b67-b242-57316398b9e2', // sarah
+]);
+
+export const KNOWN_DEMO_NAMES = [
+  'test lawyer',
+  'test counsel',
+  'test attorney',
+  'test user',
+  'attorney jenkins',
   'sarah jenkins',
+  'sarah',
+  'jenkins',
   'rachel zane',
+  'rachel',
+  'zane',
   'mike ross',
   'harvey specter',
   'evelyn reed',
@@ -15,14 +32,91 @@ const KNOWN_DEMO_NAMES = [
   'demo attorney',
 ];
 
-export function isDemoProfile(profile?: Partial<Profile> | null): boolean {
-  if (!profile || !profile.name) return true;
-  const nameLower = profile.name.toLowerCase().trim();
-  if (nameLower.includes('demo') || nameLower.includes('sample') || KNOWN_DEMO_NAMES.includes(nameLower)) {
+export function getDismissedProfiles(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_PROFILES_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isDismissedProfile(idOrName: string): boolean {
+  if (!idOrName) return false;
+  const clean = idOrName.toLowerCase().trim();
+  const dismissed = getDismissedProfiles();
+  return dismissed.includes(clean);
+}
+
+export function dismissProfile(idOrName: string): void {
+  try {
+    const clean = idOrName.toLowerCase().trim();
+    const dismissed = getDismissedProfiles();
+    if (!dismissed.includes(clean)) {
+      dismissed.push(clean);
+      localStorage.setItem(DISMISSED_PROFILES_KEY, JSON.stringify(dismissed));
+    }
+  } catch (err) {
+    console.warn('Could not save dismissed profile:', err);
+  }
+}
+
+export function isDemoProfile(
+  profile?: Partial<Profile> | null,
+  currentUserId?: string | null
+): boolean {
+  if (!profile) return true;
+  const idStr = String(profile.id || '').toLowerCase().trim();
+
+  // Never flag the active logged-in user as demo
+  if (currentUserId && idStr === currentUserId.toLowerCase().trim()) {
+    return false;
+  }
+
+  // Check known demo IDs
+  if (KNOWN_DEMO_IDS.has(idStr) || isDismissedProfile(idStr)) {
     return true;
   }
-  const idStr = String(profile.id || '').toLowerCase();
+
+  if (!profile.name) return true;
+  const nameLower = profile.name.toLowerCase().trim();
+
+  // Check dismissed by name
+  if (isDismissedProfile(nameLower)) {
+    return true;
+  }
+
+  // Check demo, test, sample prefixes/substrings
+  if (
+    nameLower.includes('demo') ||
+    nameLower.includes('sample') ||
+    nameLower.startsWith('test') ||
+    nameLower.includes('test lawyer') ||
+    nameLower.includes('test counsel') ||
+    nameLower.includes('test_') ||
+    nameLower === 'test' ||
+    KNOWN_DEMO_NAMES.some((dn) => nameLower === dn || nameLower.includes(dn))
+  ) {
+    return true;
+  }
+
+  // Fallback check for missing or short placeholder IDs
   if (!idStr || idStr.includes('demo') || idStr.length < 15) {
+    return true;
+  }
+
+  return false;
+}
+
+export function isDemoCase(caseItem?: Partial<CaseItem> | null): boolean {
+  if (!caseItem) return true;
+  const nameLower = (caseItem.case_name || '').toLowerCase().trim();
+  if (
+    nameLower.includes('test lawyer') ||
+    nameLower.includes('demo case') ||
+    nameLower.startsWith('test case') ||
+    nameLower.includes('sample case')
+  ) {
     return true;
   }
   return false;
@@ -30,6 +124,10 @@ export function isDemoProfile(profile?: Partial<Profile> | null): boolean {
 
 export function purgeDemoProfilesFromStorage(): void {
   try {
+    // Also seed dismissed profiles with known demo IDs
+    KNOWN_DEMO_IDS.forEach((id) => dismissProfile(id));
+    KNOWN_DEMO_NAMES.forEach((name) => dismissProfile(name));
+
     const raw = localStorage.getItem(ALL_PROFILES_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Profile[];

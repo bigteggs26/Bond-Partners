@@ -15,6 +15,7 @@ import {
   getLocalProfilesList,
   saveLocalProfilesList,
   isDemoProfile,
+  isDemoCase,
   purgeDemoProfilesFromStorage,
 } from './lib/profileCache';
 
@@ -36,8 +37,8 @@ export default function App() {
 
   // Clean, non-demo profiles list
   const realProfiles = useMemo(
-    () => profiles.filter((p) => !isDemoProfile(p)),
-    [profiles]
+    () => profiles.filter((p) => !isDemoProfile(p, currentUser?.id)),
+    [profiles, currentUser]
   );
 
   // 1. Load Profiles & verify if a Boss account exists (resilient to RLS errors)
@@ -47,7 +48,7 @@ export default function App() {
       if (error) {
         console.warn('Notice loading profiles from database:', error.message);
         // Fall back to local profiles cache
-        const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p));
+        const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUser?.id));
         if (cached.length > 0) {
           setProfiles(cached);
           const bossExists = cached.some((p) => p.role === 'boss');
@@ -56,7 +57,7 @@ export default function App() {
         }
         return [];
       }
-      const loadedProfiles = (data || []).filter((p: any) => !isDemoProfile(p)) as Profile[];
+      const loadedProfiles = (data || []).filter((p: any) => !isDemoProfile(p, currentUser?.id)) as Profile[];
       setProfiles(loadedProfiles);
       saveLocalProfilesList(loadedProfiles);
 
@@ -65,7 +66,7 @@ export default function App() {
       return loadedProfiles;
     } catch (err) {
       console.warn('Failed to verify profiles:', err);
-      const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p));
+      const cached = getLocalProfilesList().filter((p) => !isDemoProfile(p, currentUser?.id));
       if (cached.length > 0) {
         setProfiles(cached);
         setHasBossAccount(cached.some((p) => p.role === 'boss'));
@@ -73,7 +74,7 @@ export default function App() {
       }
       return [];
     }
-  }, []);
+  }, [currentUser]);
 
   // 2. Load Cases
   const loadCases = useCallback(async (currentProfilesList?: Profile[]) => {
@@ -88,20 +89,24 @@ export default function App() {
         return;
       }
 
-      const activeProfiles = currentProfilesList || profiles;
-      const casesWithLawyers: CaseItem[] = (data || []).map((c: any) => {
-        const assigned = activeProfiles.find((p) => p.id === c.assigned_lawyer_id) || null;
-        return {
-          ...c,
-          assigned_lawyer: assigned,
-        };
-      });
+      const activeProfiles = (currentProfilesList || profiles).filter(
+        (p) => !isDemoProfile(p, currentUser?.id)
+      );
+      const casesWithLawyers: CaseItem[] = (data || [])
+        .filter((c: any) => !isDemoCase(c))
+        .map((c: any) => {
+          const assigned = activeProfiles.find((p) => p.id === c.assigned_lawyer_id) || null;
+          return {
+            ...c,
+            assigned_lawyer: assigned,
+          };
+        });
 
       setCases(casesWithLawyers);
     } catch (err) {
       console.error('Failed to load cases:', err);
     }
-  }, [profiles]);
+  }, [profiles, currentUser]);
 
   // 3. Initialize Auth Session & Profiles Check
   useEffect(() => {
@@ -438,6 +443,7 @@ export default function App() {
           isOpen={isManageTeamOpen}
           onClose={() => setIsManageTeamOpen(false)}
           profiles={realProfiles}
+          currentUser={currentUser}
           onRefreshProfiles={async () => {
             const refreshed = await checkBossAndLoadProfiles();
             await loadCases(refreshed);
