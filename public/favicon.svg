@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF0D0" />
+      <stop offset="35%" stop-color="#E5C158" />
+      <stop offset="70%" stop-color="#C59B35" />
+      <stop offset="100%" stop-color="#8F681A" />
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#181B26" />
+      <stop offset="100%" stop-color="#0B0D13" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background Shield / Coin -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#shieldGrad)" stroke="url(#goldGrad)" stroke-width="2" />
+
+  <!-- Scales of Justice -->
+  <!-- Central Spire & Tip -->
+  <polygon points="32,9 28,17 36,17" fill="url(#goldGrad)" />
+  <circle cx="32" cy="18.5" r="1.5" fill="url(#goldGrad)" />
+  
+  <!-- Central Column / Pillar -->
+  <rect x="30.2" y="19" width="3.6" height="34" rx="1" fill="url(#goldGrad)" />
+  
+  <!-- Pedestal Base -->
+  <rect x="22" y="52" width="20" height="3" rx="1" fill="url(#goldGrad)" />
+  <rect x="19" y="54.5" width="26" height="2.5" rx="1" fill="url(#goldGrad)" />
+
+  <!-- Scales Balance Crossbeam -->
+  <rect x="14" y="24" width="36" height="3" rx="1.5" fill="url(#goldGrad)" />
+  <circle cx="17" cy="25.5" r="2" fill="url(#goldGrad)" />
+  <circle cx="47" cy="25.5" r="2" fill="url(#goldGrad)" />
+
+  <!-- Left Scale Strings & Bowl -->
+  <line x1="17" y1="26" x2="10" y2="38" stroke="url(#goldGrad)" stroke-width="1.2" stroke-linecap="round" />
+  <line x1="17" y1="26" x2="24" y2="38" stroke="url(#goldGrad)" stroke-width="1.2" stroke-linecap="round" />
+  <path d="M 9 38 Q 17 47 25 38 Z" fill="url(#goldGrad)" />
+
+  <!-- Right Scale Strings & Bowl -->
+  <line x1="47" y1="26" x2="40" y2="38" stroke="url(#goldGrad)" stroke-width="1.2" stroke-linecap="round" />
+  <line x1="47" y1="26" x2="54" y2="38" stroke="url(#goldGrad)" stroke-width="1.2" stroke-linecap="round" />
+  <path d="M 39 38 Q 47 47 55 38 Z" fill="url(#goldGrad)" />
+</svg>
