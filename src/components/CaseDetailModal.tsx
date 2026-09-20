@@ -392,9 +392,13 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     setStagedFiles([]);
   };
 
-  // Delete a document (available to firm members)
+  // Delete a document (restricted to Managing Partner / Boss)
   const handleDeleteFile = async (file: CaseFile) => {
     if (!currentCase) return;
+    if (!isBoss) {
+      setErrorMsg('Only Managing Partners have permission to delete files.');
+      return;
+    }
     setDeletingFileId(file.id);
     setConfirmDeleteFileId(null);
     setErrorMsg(null);
@@ -432,9 +436,13 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
     }
   };
 
-  // Deletes entire case
+  // Deletes entire case (Managing Partner / Boss only)
   const handleDeleteCase = async () => {
     if (!currentCase) return;
+    if (!isBoss) {
+      setErrorMsg('Only Managing Partners have permission to delete case dockets.');
+      return;
+    }
     setIsDeletingCase(true);
     setErrorMsg(null);
 
@@ -492,11 +500,11 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
               </button>
             )}
 
-            {!isEditing && (
+            {!isEditing && isBoss && (
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors cursor-pointer"
                 title="Delete Case Docket"
               >
                 <Trash2 className="w-4 h-4" />
@@ -978,40 +986,42 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
                                 <span className="hidden sm:inline">Download</span>
                               </a>
 
-                              {/* Delete Button (Available to firm members) */}
-                              {confirmDeleteFileId === file.id ? (
-                                <div className="inline-flex items-center gap-1.5 bg-rose-950/80 border border-rose-800 rounded-md px-2 py-1 text-xs">
-                                  <span className="text-rose-200 text-[11px] font-medium">Delete?</span>
+                              {/* Delete Button (Managing Partner / Boss only) */}
+                              {isBoss && (
+                                confirmDeleteFileId === file.id ? (
+                                  <div className="inline-flex items-center gap-1.5 bg-rose-950/80 border border-rose-800 rounded-md px-2 py-1 text-xs">
+                                    <span className="text-rose-200 text-[11px] font-medium">Delete?</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteFile(file)}
+                                      disabled={deletingFileId === file.id}
+                                      className="px-1.5 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold cursor-pointer text-[10px]"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteFileId(null)}
+                                      className="px-1.5 py-0.5 hover:bg-slate-700 text-slate-300 rounded cursor-pointer text-[10px]"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
                                   <button
                                     type="button"
-                                    onClick={() => handleDeleteFile(file)}
                                     disabled={deletingFileId === file.id}
-                                    className="px-1.5 py-0.5 bg-rose-600 hover:bg-rose-500 text-white rounded font-bold cursor-pointer text-[10px]"
+                                    onClick={() => setConfirmDeleteFileId(file.id)}
+                                    className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
+                                    title="Delete Document"
                                   >
-                                    Yes
+                                    {deletingFileId === file.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteFileId(null)}
-                                    className="px-1.5 py-0.5 hover:bg-slate-700 text-slate-300 rounded cursor-pointer text-[10px]"
-                                  >
-                                    No
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  disabled={deletingFileId === file.id}
-                                  onClick={() => setConfirmDeleteFileId(file.id)}
-                                  className="p-1.5 rounded-md text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
-                                  title="Delete Document"
-                                >
-                                  {deletingFileId === file.id ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
+                                )
                               )}
                             </div>
                           </td>
@@ -1025,8 +1035,8 @@ export const CaseDetailModal: React.FC<CaseDetailModalProps> = ({
           </div>
         )}
 
-        {/* Delete Case Confirmation Modal */}
-        {showDeleteConfirm && (
+        {/* Delete Case Confirmation Modal (Boss only) */}
+        {showDeleteConfirm && isBoss && (
           <div className="absolute inset-0 z-20 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
             <div className="w-full max-w-md p-6 bg-[#161924] border border-rose-800/60 rounded-xl shadow-2xl text-center">
               <div className="w-12 h-12 rounded-full bg-rose-950/60 border border-rose-700/60 flex items-center justify-center mx-auto mb-3 text-rose-400">
